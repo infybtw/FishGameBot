@@ -15,8 +15,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-
   bot:
+    image: ghcr.io/infybtw/fishgamebot:latest
     build: .
     restart: unless-stopped
     depends_on:
