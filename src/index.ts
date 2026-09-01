@@ -1,11 +1,12 @@
 import { loadConfig } from "./config.ts";
+import { BOT_VERSION_LABEL } from "./version.ts";
 import { log } from "./logger.ts";
 import { createRepo, createSql, migrateSchema } from "./db/index.ts";
 import { loadCatalog, setCatalog } from "./features/fishing/catalog.ts";
 import { createBot, type CatalogAccess } from "./bot.ts";
 
 async function main(): Promise<void> {
-  log.info("Starting fishbot");
+  log.info({ version: BOT_VERSION_LABEL }, "Starting fishbot");
   const cfg = loadConfig();
   log.debug("Configuration loaded");
   const sql = createSql(cfg.databaseUrl);

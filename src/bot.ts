@@ -5,7 +5,7 @@ import type { Config } from "./config.ts";
 import type { Repo } from "./db/index.ts";
 import type { Catalog } from "./features/fishing/catalog.ts";
 import { registerGroupCommands } from "./features/fishing/commands.ts";
-import { registerAdminCommands } from "./features/admin/commands.ts";
+import { registerInfoCommands } from "./features/info.ts";
 import { log } from "./logger.ts";
 
 export type BotContext = ConversationFlavor<Context>;
@@ -38,7 +38,7 @@ export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess)
   });
   bot.use(conversations());
   registerGroupCommands(bot, cfg, repo);
-
+  registerInfoCommands(bot);
   bot.catch((err) => log.error({ err: err.error }, "update handler failed"));
 
   return bot;
