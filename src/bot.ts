@@ -4,6 +4,7 @@ import { autoRetry } from "@grammyjs/auto-retry";
 import type { Config } from "./config.ts";
 import type { Repo } from "./db/index.ts";
 import type { Catalog } from "./features/fishing/catalog.ts";
+import { registerAdminCommands } from "./features/admin/commands.ts";
 import { registerGroupCommands } from "./features/fishing/commands.ts";
 import { registerInfoCommands } from "./features/info.ts";
 import { log } from "./logger.ts";
@@ -39,6 +40,7 @@ export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess)
   bot.use(conversations());
   registerGroupCommands(bot, cfg, repo);
   registerInfoCommands(bot);
+  registerAdminCommands(bot, cfg, repo, catalogAccess);
   bot.catch((err) => log.error({ err: err.error }, "update handler failed"));
 
   return bot;
