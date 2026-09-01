@@ -30,5 +30,17 @@ services:
       CATCH_DELAY: ${CATCH_DELAY:-3600}
       LOG_LEVEL: ${LOG_LEVEL:-info}
 
+  adminer:
+    image: adminer:4
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      # Loopback only: reach via SSH tunnel (ssh -L 8080:127.0.0.1:8080) or a reverse proxy.
+      - "127.0.0.1:8080:8080"
+
 volumes:
   postgres-data:
