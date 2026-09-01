@@ -1,0 +1,23 @@
+{
+  "name": "fishcatcher-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "seed": "bun scripts/seed.ts",
+    "migrate-legacy": "bun scripts/migrate-legacy.ts"
+  },
+  "dependencies": {
+    "@grammyjs/auto-retry": "^2.0.2",
+    "@grammyjs/conversations": "^2.1.1",
+    "grammy": "^1.46.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.0",
+    "typescript": "^7.0.2"
+  }
+}
