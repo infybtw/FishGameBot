@@ -2,7 +2,8 @@ name: Docker image
 
 on:
   push:
-    branches: [main]
+    tags:
+      - "*"
   workflow_dispatch:
 
 permissions:
@@ -59,9 +60,10 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Push image
         run: |
-          docker tag "${{ steps.image.outputs.name }}:${{ github.sha }}" "${{ steps.image.outputs.name }}:latest"
-          docker push "${{ steps.image.outputs.name }}:${{ github.sha }}"
-          docker push "${{ steps.image.outputs.name }}:latest"
+          IMAGE_NAME="${{ steps.image.outputs.name }}"
+          docker tag "${IMAGE_NAME}:${{ github.sha }}" "${IMAGE_NAME}:${GITHUB_REF_NAME}"
+          docker tag "${IMAGE_NAME}:${{ github.sha }}" "${IMAGE_NAME}:latest"
+          docker push "${IMAGE_NAME}:${GITHUB_REF_NAME}"
+          docker push "${IMAGE_NAME}:latest"
