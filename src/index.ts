@@ -2,6 +2,7 @@ import { loadConfig } from "./config.ts";
 import { BOT_VERSION_LABEL } from "./version.ts";
 import { log } from "./logger.ts";
 import { createRepo, createSql, migrateSchema } from "./db/index.ts";
+import { seedDefaultFish } from "./db/seed.ts";
 import { loadCatalog, setCatalog } from "./features/fishing/catalog.ts";
 import { createBot, type CatalogAccess } from "./bot.ts";
 
@@ -13,6 +14,9 @@ async function main(): Promise<void> {
   await migrateSchema(sql);
   log.debug("Database schema is up to date");
   const repo = createRepo(sql);
+
+  const seeded = await seedDefaultFish(repo);
+  if (seeded > 0) log.info({ seeded }, "Seeded default fish list");
 
   const catalogAccess: CatalogAccess = {
     async reload() {
