@@ -1,7 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { generatePrice, generateSize, generateWeight, rollPoint } from "./generator.ts";
 import { formatRemaining } from "./cooldown.ts";
-import type { Catalog } from "./catalog.ts";
+import { RARITY_WEIGHTS, type Catalog } from "./catalog.ts";
+
+test("rarity weights match the target catch distribution", () => {
+  expect(RARITY_WEIGHTS).toEqual({
+    1: 72,
+    2: 20,
+    3: 6,
+    4: 1.5,
+    5: 0.4,
+    6: 0.1,
+  });
+  expect(Object.values(RARITY_WEIGHTS).reduce((sum, weight) => sum + weight, 0)).toBe(100);
+});
 
 describe("generateSize", () => {
   for (const point of [1, 2, 3, 4, 5, 6]) {

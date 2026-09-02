@@ -5,8 +5,15 @@ export type FishTemplate = { name: string; rarity: string; point: number };
 /** Fish templates grouped by rarity point; index is `point - 1`. */
 export type Catalog = FishTemplate[][];
 
-/** Roll weights per rarity point; points absent here are never rolled. */
-export const RARITY_WEIGHTS: Record<number, number> = { 1: 50, 2: 20, 3: 10, 4: 5, 5: 1, 6: 0.1 };
+/** Chance of each rarity point among successful catches; values sum to 100%. */
+export const RARITY_WEIGHTS: Readonly<Record<number, number>> = {
+  1: 72,
+  2: 20,
+  3: 6,
+  4: 1.5,
+  5: 0.4,
+  6: 0.1,
+};
 
 export async function loadCatalog(repo: Repo): Promise<Catalog> {
   const catalog: Catalog = [];
