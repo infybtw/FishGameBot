@@ -7,7 +7,15 @@ import { log } from "../../logger.ts";
 import { getCatalog } from "./catalog.ts";
 import { checkCooldown } from "./cooldown.ts";
 import { tryCatch } from "./generator.ts";
-import { catchCard, cooldownMsg, nothingCaught, statsEmpty, statsMsg, topFishers } from "./messages.ts";
+import {
+  catchCard,
+  cooldownMsg,
+  fishCatalogMessage,
+  nothingCaught,
+  statsEmpty,
+  statsMsg,
+  topFishers,
+} from "./messages.ts";
 
 function logIgnored(ctx: Context, reason: string): void {
   log.debug(
@@ -70,6 +78,18 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
       "Fish caught",
     );
     await ctx.reply(catchCard(fish));
+  });
+
+  bot.command("fishes", async (ctx) => {
+    if (!isGroup(ctx)) {
+      logIgnored(ctx, "not a group chat");
+      return;
+    }
+    const catalog = getCatalog();
+    let fishCount = 0;
+    for (const group of catalog) fishCount += group?.length ?? 0;
+    log.debug({ chatId: ctx.chat.id, fishCount }, "Fish catalog requested");
+    await ctx.reply(fishCatalogMessage(catalog));
   });
 
   bot.command("fishtop", async (ctx) => {
