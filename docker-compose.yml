@@ -31,7 +31,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
 
   adminer:
-    image: adminer:5.4.2
+    image: adminer:6.0.1
     restart: unless-stopped
     depends_on:
       postgres:
