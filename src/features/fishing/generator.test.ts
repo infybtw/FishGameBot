@@ -1,7 +1,16 @@
 import { afterEach, describe, expect, jest, spyOn, test } from "bun:test";
-import { generatePrice, generateSize, generateWeight, pickTemplate, rollPoint, tryCatch } from "./generator.ts";
+import {
+  boostedCatch,
+  fakeFishCatch,
+  generatePrice,
+  generateSize,
+  generateWeight,
+  pickTemplate,
+  rollPoint,
+  tryCatch,
+} from "./generator.ts";
 import { formatRemaining } from "./cooldown.ts";
-import { RARITY_WEIGHTS, type Catalog } from "./catalog.ts";
+import { CHANCE_UP_RARITY_WEIGHTS, RARITY_WEIGHTS, type Catalog } from "./catalog.ts";
 
 function mockRandom(values: readonly number[]): void {
   let index = 0;
@@ -135,4 +144,116 @@ describe("tryCatch", () => {
 
 test("formatRemaining(3725) === '1часов 2минут 5секунд'", () => {
   expect(formatRemaining(3725)).toBe("1часов 2минут 5секунд");
+});
+
+test("chance-up rarity weights target the boosted high-tier distribution", () => {
+  expect(CHANCE_UP_RARITY_WEIGHTS).toEqual({ 2: 45, 3: 30, 4: 15, 5: 7, 6: 3 });
+});
+
+const BOOST_CATALOG: Catalog = [
+  [{ name: "Окунь", rarity: "Обычный", point: 1 }],
+  [{ name: "Лещ", rarity: "Редкий", point: 2 }],
+  [{ name: "Карп", rarity: "Эпический", point: 3 }],
+  [{ name: "Сом", rarity: "Легендарный", point: 4 }],
+  [{ name: "Акула", rarity: "Мифическая", point: 5 }],
+  [{ name: "Кит", rarity: "Радужная", point: 6 }],
+];
+
+// Deterministic tail consumed by generateSize's beta sample.
+const SIZE_RANDOMS = [0.5, 0.25, 0.5, 0.5, 0.25, 0.5];
+
+describe("rollPoint with chance-up weights", () => {
+  test("selects each boosted point on both sides of its weight boundary", () => {
+    mockRandom([0, 0.449, 0.451, 0.749, 0.751, 0.899, 0.901, 0.969, 0.971, 0.9999]);
+
+    const rolled: number[] = [];
+    for (let i = 0; i < 10; i++) rolled.push(rollPoint(BOOST_CATALOG, CHANCE_UP_RARITY_WEIGHTS));
+    expect(rolled).toEqual([2, 2, 3, 3, 4, 4, 5, 5, 6, 6]);
+  });
+
+  test("never selects point 1 even when point 1 is the dominant normal group", () => {
+    const catalog: Catalog = [
+      [{ name: "Окунь", rarity: "Обычный", point: 1 }],
+      [{ name: "Лещ", rarity: "Редкий", point: 2 }],
+    ];
+    mockRandom([0, 0.9999999999999999]);
+
+    expect(rollPoint(catalog, CHANCE_UP_RARITY_WEIGHTS)).toBe(2);
+    expect(rollPoint(catalog, CHANCE_UP_RARITY_WEIGHTS)).toBe(2);
+  });
+
+  test("rejects a catalog without rarity 2-6 groups", () => {
+    const catalog: Catalog = [[{ name: "Окунь", rarity: "Обычный", point: 1 }]];
+    expect(() => rollPoint(catalog, CHANCE_UP_RARITY_WEIGHTS)).toThrow(
+      "Cannot roll a rarity point: fish catalog is empty",
+    );
+  });
+});
+
+describe("boostedCatch", () => {
+  test("builds a complete catch on the rolled boosted point", () => {
+    mockRandom([0.5, 0, ...SIZE_RANDOMS]);
+
+    expect(boostedCatch(BOOST_CATALOG, "Ира")).toEqual({
+      name: "Карп",
+      rarity: "Эпический",
+      point: 3,
+      sizeCm: 38.93,
+      weightG: 4720.01,
+      price: 2724,
+      catcherFirstName: "Ира",
+    });
+  });
+
+  test("throws when no rarity 2-6 group exists", () => {
+    const catalog: Catalog = [[{ name: "Окунь", rarity: "Обычный", point: 1 }]];
+    expect(() => boostedCatch(catalog, "Ира")).toThrow("Cannot roll a rarity point: fish catalog is empty");
+  });
+});
+
+describe("fakeFishCatch", () => {
+  const catalog: Catalog = [
+    [],
+    [],
+    [],
+    [],
+    [{ name: "Акула", rarity: "Мифическая", point: 5 }],
+    [{ name: "Кит", rarity: "Радужная", point: 6 }],
+  ];
+
+  test("picks either non-empty high-tier group and builds a complete catch", () => {
+    mockRandom([0, 0, ...SIZE_RANDOMS]);
+
+    expect(fakeFishCatch(catalog, "Ира")).toEqual({
+      name: "Акула",
+      rarity: "Мифическая",
+      point: 5,
+      sizeCm: 62.5,
+      weightG: 19531.25,
+      price: 25414.06,
+      catcherFirstName: "Ира",
+    });
+
+    mockRandom([0.9, 0, ...SIZE_RANDOMS]);
+    expect(fakeFishCatch(catalog, "Ира").name).toBe("Кит");
+  });
+
+  test("selects the only available high-tier group", () => {
+    const only6: Catalog = [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [{ name: "Кит", rarity: "Радужная", point: 6 }],
+    ];
+    mockRandom([0, 0, ...SIZE_RANDOMS]);
+
+    expect(fakeFishCatch(only6, "Ира").point).toBe(6);
+  });
+
+  test("throws when neither point 5 nor point 6 has templates", () => {
+    const catalog: Catalog = [[{ name: "Окунь", rarity: "Обычный", point: 1 }]];
+    expect(() => fakeFishCatch(catalog, "Ира")).toThrow("No fish templates for rarity point 5 or 6");
+  });
 });

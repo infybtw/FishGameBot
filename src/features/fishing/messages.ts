@@ -1,4 +1,4 @@
-import type { TopFisherRow } from "../../db/index.ts";
+import type { DeletedCatch, TopFisherRow } from "../../db/index.ts";
 import { escapeHtml, round2 } from "../../lib/format.ts";
 import { formatRemaining } from "./cooldown.ts";
 import type { CaughtFish } from "./generator.ts";
@@ -28,6 +28,42 @@ export function cooldownMsg(firstName: string, secondsLeft: number): string {
     `До следующего улова осталось:\n` +
     `<b>${formatRemaining(secondsLeft)}</b>`
   );
+}
+
+export function cooldownReset(firstName: string): string {
+  return `Кулдаун для ${escapeHtml(firstName)} снят`;
+}
+
+export function cooldownsResetAll(count: number): string {
+  return `Кулдауны сняты для всех (${count})`;
+}
+
+export const CDR_USAGE = "Ответьте на сообщение пользователя командой /cdr";
+export const CHANCE_UP_USAGE = "Ответьте на сообщение пользователя командой /chanceup";
+export const FAKE_FISH_CATALOG_EMPTY = "В списке нет рыб редкости 5 или 6";
+export const CHANCE_UP_CATALOG_EMPTY = "В списке нет рыб редкости 2–6";
+export const COOLDOWNS_EMPTY = "Кулдауны пока отсутствуют";
+
+export function cooldownList(rows: Array<{ firstName: string; minutesLeft: number }>): string {
+  if (rows.length === 0) return COOLDOWNS_EMPTY;
+  return (
+    `🐟 <b>Кулдауны</b>\n` +
+    rows.map((row) => `• <b>${escapeHtml(row.firstName)}</b> — ${row.minutesLeft} мин.`).join("\n")
+  );
+}
+
+export function chanceUpGranted(firstName: string): string {
+  return `Шанс для ${escapeHtml(firstName)} повышен: следующая разрешённая /fish гарантированно поймает рыбу редкости 2–6.`;
+}
+
+export const CR_USAGE = "Ответьте на сообщение пользователя командой /cr";
+
+export function lastCatchRemoved(firstName: string, fish: DeletedCatch): string {
+  return `Последний улов для ${escapeHtml(firstName)} удалён: ${escapeHtml(fish.fishName)} (${escapeHtml(fish.rarity)}, -${round2(fish.price)}р)`;
+}
+
+export function lastCatchMissing(firstName: string): string {
+  return `У ${escapeHtml(firstName)} нет пойманных рыб`;
 }
 
 export function topFishers(rows: TopFisherRow[]): string {

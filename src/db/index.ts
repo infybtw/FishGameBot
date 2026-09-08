@@ -3,6 +3,7 @@ import { SQL } from "bun";
 export type FishTemplateRow = { id: number; name: string; rarity: string; point: number };
 export type FishTemplateInsert = { name: string; rarity: string; point: number };
 export type FisherRow = { userId: number; chatId: number; firstName: string; balance: number };
+export type CooldownRow = { userId: number; firstName: string; lastCatchTime: number };
 export type TopFisherRow = { firstName: string; total: number };
 export type CatchInsert = {
   username: string;
@@ -15,6 +16,8 @@ export type CatchInsert = {
   weightG: number;
   price: number;
 };
+/** The most recent catch removed by /cr, with its price reversed from the balance. */
+export type DeletedCatch = { fishName: string; rarity: string; point: number; price: number };
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS fishes (
@@ -48,6 +51,11 @@ const SCHEMA_STATEMENTS = [
   last_catch_time DOUBLE PRECISION NOT NULL,
   PRIMARY KEY (user_id, chat_id)
 )`,
+  `CREATE TABLE IF NOT EXISTS chance_up (
+  user_id BIGINT NOT NULL,
+  chat_id BIGINT NOT NULL,
+  PRIMARY KEY (user_id, chat_id)
+)`,
 ];
 
 export function createSql(databaseUrl: string): SQL {
@@ -72,8 +80,15 @@ export type Repo = {
   ensureFisher(userId: number, chatId: number, firstName: string): Promise<void>;
   addBalance(userId: number, chatId: number, delta: number): Promise<void>;
   recordCatchWithBalance(catch_: CatchInsert, delta: number): Promise<void>;
+  deleteLastCatch(userId: number, chatId: number): Promise<DeletedCatch | null>;
   getCatchTime(userId: number, chatId: number): Promise<number | null>;
   upsertCatchTime(userId: number, chatId: number, unixSeconds: number): Promise<void>;
+  deleteCatchTime(userId: number, chatId: number): Promise<void>;
+  deleteCatchTimes(chatId: number): Promise<number>;
+  listCatchTimes(chatId: number): Promise<CooldownRow[]>;
+  grantChanceUp(userId: number, chatId: number): Promise<void>;
+  hasChanceUp(userId: number, chatId: number): Promise<boolean>;
+  consumeChanceUp(userId: number, chatId: number): Promise<boolean>;
   getFisher(userId: number, chatId: number): Promise<FisherRow | null>;
   listTemplates(): Promise<FishTemplateRow[]>;
   replaceAllTemplates(templates: FishTemplateInsert[]): Promise<number>;
@@ -107,6 +122,28 @@ export function createRepo(sql: SQL): Repo {
           WHERE user_id = ${catch_.userId} AND chat_id = ${catch_.chatId}`;
       });
     },
+    async deleteLastCatch(userId: number, chatId: number): Promise<DeletedCatch | null> {
+      return sql.begin(async (tx) => {
+        const rows = (await tx`DELETE FROM caught_fishes
+          WHERE id = (SELECT id FROM caught_fishes
+            WHERE user_id = ${userId} AND chat_id = ${chatId}
+            ORDER BY id DESC LIMIT 1)
+          RETURNING fish_name, fish_rarity, fish_rarity_point, fish_price`) as Array<
+          Record<string, unknown>
+        >;
+        const row = rows[0];
+        if (row === undefined) return null;
+        const price = asNumber(row.fish_price);
+        await tx`UPDATE fishers SET user_balance = user_balance - ${price}
+          WHERE user_id = ${userId} AND chat_id = ${chatId}`;
+        return {
+          fishName: String(row.fish_name),
+          rarity: String(row.fish_rarity),
+          point: asNumber(row.fish_rarity_point),
+          price,
+        };
+      });
+    },
     async getCatchTime(userId: number, chatId: number): Promise<number | null> {
       const rows = (await sql`SELECT last_catch_time FROM catch_time
         WHERE user_id = ${userId} AND chat_id = ${chatId}`) as Array<{ last_catch_time: unknown }>;
@@ -117,6 +154,41 @@ export function createRepo(sql: SQL): Repo {
       await sql`INSERT INTO catch_time (user_id, chat_id, last_catch_time)
         VALUES (${userId}, ${chatId}, ${unixSeconds})
         ON CONFLICT (user_id, chat_id) DO UPDATE SET last_catch_time = EXCLUDED.last_catch_time`;
+    },
+    async deleteCatchTime(userId: number, chatId: number): Promise<void> {
+      await sql`DELETE FROM catch_time WHERE user_id = ${userId} AND chat_id = ${chatId}`;
+    },
+    async deleteCatchTimes(chatId: number): Promise<number> {
+      const rows = (await sql`DELETE FROM catch_time WHERE chat_id = ${chatId} RETURNING user_id`) as unknown[];
+      return rows.length;
+    },
+    async listCatchTimes(chatId: number): Promise<CooldownRow[]> {
+      const rows = (await sql`SELECT c.user_id, c.last_catch_time, f.user_first_name
+        FROM catch_time c
+        JOIN fishers f ON f.user_id = c.user_id AND f.chat_id = c.chat_id
+        WHERE c.chat_id = ${chatId}
+        ORDER BY f.user_first_name, c.user_id`) as Array<Record<string, unknown>>;
+      return rows.map((row) => ({
+        userId: asNumber(row.user_id),
+        firstName: String(row.user_first_name),
+        lastCatchTime: asNumber(row.last_catch_time),
+      }));
+    },
+    async grantChanceUp(userId: number, chatId: number): Promise<void> {
+      await sql`INSERT INTO chance_up (user_id, chat_id)
+        VALUES (${userId}, ${chatId})
+        ON CONFLICT (user_id, chat_id) DO NOTHING`;
+    },
+    async hasChanceUp(userId: number, chatId: number): Promise<boolean> {
+      const rows = (await sql`SELECT user_id FROM chance_up
+        WHERE user_id = ${userId} AND chat_id = ${chatId}`) as unknown[];
+      return rows.length > 0;
+    },
+    async consumeChanceUp(userId: number, chatId: number): Promise<boolean> {
+      const rows = (await sql`DELETE FROM chance_up
+        WHERE user_id = ${userId} AND chat_id = ${chatId}
+        RETURNING user_id`) as unknown[];
+      return rows.length > 0;
     },
     async getFisher(userId: number, chatId: number): Promise<FisherRow | null> {
       const rows = (await sql`SELECT user_id, chat_id, user_first_name, user_balance FROM fishers

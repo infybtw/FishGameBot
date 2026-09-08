@@ -15,6 +15,23 @@ export const RARITY_WEIGHTS: Readonly<Record<number, number>> = {
   6: 0.1,
 };
 
+/** Chance of each rarity point among chance-up boosted catches; point 1 is unreachable. */
+export const CHANCE_UP_RARITY_WEIGHTS: Readonly<Record<number, number>> = {
+  2: 45,
+  3: 30,
+  4: 15,
+  5: 7,
+  6: 3,
+};
+
+/** Rarity points a chance-up boosted catch can land on. */
+export const CHANCE_UP_POINTS: readonly number[] = [2, 3, 4, 5, 6];
+
+/** True when at least one of `points` has a non-empty catalog group. */
+export function hasRarityGroup(catalog: Catalog, points: readonly number[]): boolean {
+  return points.some((point) => (catalog[point - 1]?.length ?? 0) > 0);
+}
+
 export async function loadCatalog(repo: Repo): Promise<Catalog> {
   const catalog: Catalog = [];
   for (const template of await repo.loadAllTemplates()) {
