@@ -30,6 +30,27 @@ export function cooldownMsg(firstName: string, secondsLeft: number): string {
   );
 }
 
+export function cooldownReset(firstName: string): string {
+  return `Кулдаун для ${escapeHtml(firstName)} снят`;
+}
+
+export const CDR_USAGE = "Ответьте на сообщение пользователя командой /cdr";
+export const CHANCE_UP_USAGE = "Ответьте на сообщение пользователя командой /chanceup";
+export const FAKE_FISH_CATALOG_EMPTY = "В списке нет рыб редкости 5 или 6";
+export const CHANCE_UP_CATALOG_EMPTY = "В списке нет рыб редкости 2–6";
+
+export function cooldownList(rows: Array<{ firstName: string; minutesLeft: number }>): string {
+  if (rows.length === 0) return "Кулдауны пока отсутствуют";
+  return (
+    `🐟 <b>Кулдауны</b>\n` +
+    rows.map((row) => `• <b>${escapeHtml(row.firstName)}</b> — ${row.minutesLeft} мин.`).join("\n")
+  );
+}
+
+export function chanceUpGranted(firstName: string): string {
+  return `Шанс для ${escapeHtml(firstName)} повышен: следующая разрешённая /fish гарантированно поймает рыбу редкости 2–6.`;
+}
+
 export function topFishers(rows: TopFisherRow[]): string {
   if (rows.length === 0) return "Топ рыбаков пока пустует";
   return (

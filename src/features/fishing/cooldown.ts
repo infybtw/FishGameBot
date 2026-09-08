@@ -4,6 +4,14 @@ import type { Repo } from "../../db/index.ts";
 export type CooldownCheck = { ok: true } | { ok: false; secondsLeft: number };
 
 /**
+ * Seconds until the cooldown started at `lastCatchTime` expires at `now`;
+ * negative once the delay has fully elapsed, zero exactly at the boundary.
+ */
+export function cooldownSecondsLeft(lastCatchTime: number, delaySeconds: number, now: number): number {
+  return lastCatchTime + delaySeconds - now;
+}
+
+/**
  * Cooldown starts on every allowed attempt, whether or not a fish is caught.
  */
 export async function checkCooldown(
@@ -18,12 +26,12 @@ export async function checkCooldown(
     await repo.upsertCatchTime(userId, chatId, now);
     return { ok: true };
   }
-  const remaining = now - last - cfg.catchDelaySeconds;
-  if (remaining > 0) {
+  const secondsLeft = cooldownSecondsLeft(last, cfg.catchDelaySeconds, now);
+  if (secondsLeft < 0) {
     await repo.upsertCatchTime(userId, chatId, now);
     return { ok: true };
   }
-  return { ok: false, secondsLeft: -remaining };
+  return { ok: false, secondsLeft };
 }
 
 export function formatRemaining(seconds: number): string {
