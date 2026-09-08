@@ -12,12 +12,14 @@ import {
   CDR_USAGE,
   CHANCE_UP_CATALOG_EMPTY,
   CHANCE_UP_USAGE,
+  COOLDOWNS_EMPTY,
   FAKE_FISH_CATALOG_EMPTY,
   catchCard,
   chanceUpGranted,
   cooldownList,
   cooldownMsg,
   cooldownReset,
+  cooldownsResetAll,
   fishCatalogMessage,
   nothingCaught,
   statsEmpty,
@@ -131,6 +133,16 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     await repo.deleteCatchTime(target.id, ctx.chat.id);
     log.info({ targetUserId: target.id, chatId: ctx.chat.id }, "Cooldown reset");
     await ctx.reply(cooldownReset(target.firstName));
+  });
+
+  bot.command("cdr_all", async (ctx) => {
+    if (!isAdminInGroup(ctx, cfg)) {
+      logIgnored(ctx, "not a group chat or sender is not the admin");
+      return;
+    }
+    const removed = await repo.deleteCatchTimes(ctx.chat.id);
+    log.info({ chatId: ctx.chat.id, removed }, "All cooldowns reset");
+    await ctx.reply(removed === 0 ? COOLDOWNS_EMPTY : cooldownsResetAll(removed));
   });
 
   bot.command("cd", async (ctx) => {

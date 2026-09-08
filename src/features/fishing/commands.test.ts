@@ -121,6 +121,17 @@ function createFakeRepo(): FakeRepo {
       calls.push("deleteCatchTime");
       catchTimes.delete(key(userId, chatId));
     },
+    async deleteCatchTimes(chatId) {
+      calls.push("deleteCatchTimes");
+      let removed = 0;
+      for (const rowKey of catchTimes.keys()) {
+        if (rowKey.endsWith(`:${chatId}`)) {
+          catchTimes.delete(rowKey);
+          removed++;
+        }
+      }
+      return removed;
+    },
     async listCatchTimes(chatId) {
       calls.push("listCatchTimes");
       const rows: CooldownRow[] = [];
@@ -302,6 +313,8 @@ test("admin commands from non-owners or in private chats are silently ignored", 
   await bot.handleUpdate(commandUpdate({ updateId: 9, text: "/chanceup", from: PLAYER, replyTo: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 10, text: "/cdr", from: ADMIN, chat: PRIVATE_CHAT, replyTo: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 11, text: "/cd", from: ADMIN, chat: PRIVATE_CHAT }));
+  await bot.handleUpdate(commandUpdate({ updateId: 200, text: "/cdr_all", from: PLAYER }));
+  await bot.handleUpdate(commandUpdate({ updateId: 201, text: "/cdr_all", from: ADMIN, chat: PRIVATE_CHAT }));
   await bot.handleUpdate(commandUpdate({ updateId: 12, text: "/fakefish", from: ADMIN, chat: PRIVATE_CHAT }));
   await bot.handleUpdate(
     commandUpdate({ updateId: 13, text: "/chanceup", from: ADMIN, chat: PRIVATE_CHAT, replyTo: PLAYER }),
@@ -311,6 +324,30 @@ test("admin commands from non-owners or in private chats are silently ignored", 
   expect(repo.calls).toEqual([]);
 });
 
+
+test("/cdr_all removes every cooldown in the current chat only", async () => {
+  const { bot, sentTexts, repo } = createTestBot();
+  repo.catchTimes.set("9:-100", 1_000);
+  repo.catchTimes.set("8:-100", 1_000);
+  repo.catchTimes.set("9:-200", 1_000);
+
+  await bot.handleUpdate(commandUpdate({ updateId: 202, text: "/cdr_all", from: ADMIN }));
+
+  expect(sentTexts).toEqual(["Кулдауны сняты для всех (2)"]);
+  expect(repo.calls).toEqual(["deleteCatchTimes"]);
+  expect(repo.catchTimes.has("9:-100")).toBe(false);
+  expect(repo.catchTimes.has("8:-100")).toBe(false);
+  expect(repo.catchTimes.has("9:-200")).toBe(true);
+});
+
+test("/cdr_all reports absence when no cooldowns exist", async () => {
+  const { bot, sentTexts, repo } = createTestBot();
+
+  await bot.handleUpdate(commandUpdate({ updateId: 203, text: "/cdr_all", from: ADMIN }));
+
+  expect(sentTexts).toEqual(["Кулдауны пока отсутствуют"]);
+  expect(repo.catchTimes.size).toBe(0);
+});
 test("/cd lists ceiling minutes for active cooldowns and 0 for expired ones", async () => {
   const cfg: Config = { ...CFG, catchDelaySeconds: 3600 };
   const { bot, sentTexts, repo } = createTestBot(cfg);
