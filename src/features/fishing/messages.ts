@@ -1,4 +1,4 @@
-import type { TopFisherRow } from "../../db/index.ts";
+import type { DeletedCatch, TopFisherRow } from "../../db/index.ts";
 import { escapeHtml, round2 } from "../../lib/format.ts";
 import { formatRemaining } from "./cooldown.ts";
 import type { CaughtFish } from "./generator.ts";
@@ -54,6 +54,16 @@ export function cooldownList(rows: Array<{ firstName: string; minutesLeft: numbe
 
 export function chanceUpGranted(firstName: string): string {
   return `Шанс для ${escapeHtml(firstName)} повышен: следующая разрешённая /fish гарантированно поймает рыбу редкости 2–6.`;
+}
+
+export const CR_USAGE = "Ответьте на сообщение пользователя командой /cr";
+
+export function lastCatchRemoved(firstName: string, fish: DeletedCatch): string {
+  return `Последний улов для ${escapeHtml(firstName)} удалён: ${escapeHtml(fish.fishName)} (${escapeHtml(fish.rarity)}, -${round2(fish.price)}р)`;
+}
+
+export function lastCatchMissing(firstName: string): string {
+  return `У ${escapeHtml(firstName)} нет пойманных рыб`;
 }
 
 export function topFishers(rows: TopFisherRow[]): string {

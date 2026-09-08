@@ -13,6 +13,7 @@ import {
   CHANCE_UP_CATALOG_EMPTY,
   CHANCE_UP_USAGE,
   COOLDOWNS_EMPTY,
+  CR_USAGE,
   FAKE_FISH_CATALOG_EMPTY,
   catchCard,
   chanceUpGranted,
@@ -21,6 +22,8 @@ import {
   cooldownReset,
   cooldownsResetAll,
   fishCatalogMessage,
+  lastCatchMissing,
+  lastCatchRemoved,
   nothingCaught,
   statsEmpty,
   statsMsg,
@@ -207,6 +210,28 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     for (const group of catalog) fishCount += group?.length ?? 0;
     log.debug({ chatId: ctx.chat.id, fishCount }, "Fish catalog requested");
     await ctx.reply(fishCatalogMessage(catalog));
+  });
+
+  bot.command("cr", async (ctx) => {
+    if (!isAdminInGroup(ctx, cfg)) {
+      logIgnored(ctx, "not a group chat or sender is not the admin");
+      return;
+    }
+    const target = replyTarget(ctx);
+    if (target === null) {
+      await ctx.reply(CR_USAGE);
+      return;
+    }
+    const removed = await repo.deleteLastCatch(target.id, ctx.chat.id);
+    if (removed === null) {
+      await ctx.reply(lastCatchMissing(target.firstName));
+      return;
+    }
+    log.info(
+      { targetUserId: target.id, chatId: ctx.chat.id, fish: removed.fishName, price: removed.price },
+      "Catch removed",
+    );
+    await ctx.reply(lastCatchRemoved(target.firstName, removed));
   });
 
   bot.command("fishtop", async (ctx) => {

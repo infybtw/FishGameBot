@@ -109,6 +109,19 @@ function createFakeRepo(): FakeRepo {
       const fisher = fishers.get(key(catch_.userId, catch_.chatId));
       if (fisher !== undefined) fisher.balance += delta;
     },
+    async deleteLastCatch(userId, chatId) {
+      calls.push("deleteLastCatch");
+      let index = -1;
+      for (let i = 0; i < catches.length; i++) {
+        const catch_ = catches[i]!;
+        if (catch_.userId === userId && catch_.chatId === chatId) index = i;
+      }
+      if (index === -1) return null;
+      const removed = catches.splice(index, 1)[0]!;
+      const fisher = fishers.get(key(userId, chatId));
+      if (fisher !== undefined) fisher.balance -= removed.price;
+      return { fishName: removed.fishName, rarity: removed.rarity, point: removed.point, price: removed.price };
+    },
     async getCatchTime(userId, chatId) {
       calls.push("getCatchTime");
       return catchTimes.get(key(userId, chatId)) ?? null;
@@ -315,6 +328,8 @@ test("admin commands from non-owners or in private chats are silently ignored", 
   await bot.handleUpdate(commandUpdate({ updateId: 11, text: "/cd", from: ADMIN, chat: PRIVATE_CHAT }));
   await bot.handleUpdate(commandUpdate({ updateId: 200, text: "/cdr_all", from: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 201, text: "/cdr_all", from: ADMIN, chat: PRIVATE_CHAT }));
+  await bot.handleUpdate(commandUpdate({ updateId: 204, text: "/cr", from: PLAYER, replyTo: PLAYER }));
+  await bot.handleUpdate(commandUpdate({ updateId: 205, text: "/cr", from: ADMIN, chat: PRIVATE_CHAT, replyTo: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 12, text: "/fakefish", from: ADMIN, chat: PRIVATE_CHAT }));
   await bot.handleUpdate(
     commandUpdate({ updateId: 13, text: "/chanceup", from: ADMIN, chat: PRIVATE_CHAT, replyTo: PLAYER }),
@@ -340,6 +355,57 @@ test("/cdr_all removes every cooldown in the current chat only", async () => {
   expect(repo.catchTimes.has("9:-200")).toBe(true);
 });
 
+test("/cr removes the replied player's latest catch and reverses its price", async () => {
+  const { bot, sentTexts, repo } = createTestBot();
+  repo.fishers.set("9:-100", { userId: 9, chatId: -100, firstName: "Игрок", balance: 214.5 + 719.85 });
+  repo.catches.push(
+    {
+      username: "Игрок",
+      userId: 9,
+      chatId: -100,
+      fishName: "Окунь",
+      rarity: "Обычный",
+      point: 1,
+      sizeCm: 15.36,
+      weightG: 289.91,
+      price: 214.5,
+    },
+    {
+      username: "Игрок",
+      userId: 9,
+      chatId: -100,
+      fishName: "Лещ",
+      rarity: "Редкий",
+      point: 2,
+      sizeCm: 27.14,
+      weightG: 1599.26,
+      price: 719.85,
+    },
+  );
+
+  await bot.handleUpdate(commandUpdate({ updateId: 206, text: "/cr", from: ADMIN, replyTo: PLAYER }));
+
+  expect(sentTexts).toEqual(["Последний улов для Игрок удалён: Лещ (Редкий, -719.85р)"]);
+  expect(repo.calls).toEqual(["deleteLastCatch"]);
+  expect(repo.catches).toHaveLength(1);
+  expect(repo.catches[0]!.fishName).toBe("Окунь");
+  expect(repo.fishers.get("9:-100")!.balance).toBe(214.5);
+});
+
+test("/cr without a reply or without catches changes no state", async () => {
+  const { bot, sentTexts, repo } = createTestBot();
+  repo.fishers.set("9:-100", { userId: 9, chatId: -100, firstName: "Игрок", balance: 0 });
+
+  await bot.handleUpdate(commandUpdate({ updateId: 207, text: "/cr", from: ADMIN }));
+  await bot.handleUpdate(commandUpdate({ updateId: 208, text: "/cr", from: ADMIN, replyTo: PLAYER }));
+
+  expect(sentTexts).toEqual([
+    "Ответьте на сообщение пользователя командой /cr",
+    "У Игрок нет пойманных рыб",
+  ]);
+  expect(repo.catches).toHaveLength(0);
+  expect(repo.fishers.get("9:-100")!.balance).toBe(0);
+});
 test("/cdr_all reports absence when no cooldowns exist", async () => {
   const { bot, sentTexts, repo } = createTestBot();
 

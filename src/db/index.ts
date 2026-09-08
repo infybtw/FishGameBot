@@ -16,6 +16,8 @@ export type CatchInsert = {
   weightG: number;
   price: number;
 };
+/** The most recent catch removed by /cr, with its price reversed from the balance. */
+export type DeletedCatch = { fishName: string; rarity: string; point: number; price: number };
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS fishes (
@@ -78,6 +80,7 @@ export type Repo = {
   ensureFisher(userId: number, chatId: number, firstName: string): Promise<void>;
   addBalance(userId: number, chatId: number, delta: number): Promise<void>;
   recordCatchWithBalance(catch_: CatchInsert, delta: number): Promise<void>;
+  deleteLastCatch(userId: number, chatId: number): Promise<DeletedCatch | null>;
   getCatchTime(userId: number, chatId: number): Promise<number | null>;
   upsertCatchTime(userId: number, chatId: number, unixSeconds: number): Promise<void>;
   deleteCatchTime(userId: number, chatId: number): Promise<void>;
@@ -117,6 +120,28 @@ export function createRepo(sql: SQL): Repo {
           ${catch_.rarity}, ${catch_.point}, ${catch_.price}, ${catch_.chatId})`;
         await tx`UPDATE fishers SET user_balance = user_balance + ${delta}
           WHERE user_id = ${catch_.userId} AND chat_id = ${catch_.chatId}`;
+      });
+    },
+    async deleteLastCatch(userId: number, chatId: number): Promise<DeletedCatch | null> {
+      return sql.begin(async (tx) => {
+        const rows = (await tx`DELETE FROM caught_fishes
+          WHERE id = (SELECT id FROM caught_fishes
+            WHERE user_id = ${userId} AND chat_id = ${chatId}
+            ORDER BY id DESC LIMIT 1)
+          RETURNING fish_name, fish_rarity, fish_rarity_point, fish_price`) as Array<
+          Record<string, unknown>
+        >;
+        const row = rows[0];
+        if (row === undefined) return null;
+        const price = asNumber(row.fish_price);
+        await tx`UPDATE fishers SET user_balance = user_balance - ${price}
+          WHERE user_id = ${userId} AND chat_id = ${chatId}`;
+        return {
+          fishName: String(row.fish_name),
+          rarity: String(row.fish_rarity),
+          point: asNumber(row.fish_rarity_point),
+          price,
+        };
       });
     },
     async getCatchTime(userId: number, chatId: number): Promise<number | null> {
