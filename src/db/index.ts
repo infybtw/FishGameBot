@@ -78,18 +78,13 @@ const SCHEMA_STATEMENTS = [
   fish_price DOUBLE PRECISION NOT NULL,
   chat_id BIGINT NOT NULL,
   inventory_state TEXT NOT NULL DEFAULT 'available',
-  CONSTRAINT caught_fishes_inventory_state_check CHECK (inventory_state IN ('available', 'sold', 'spent'))
+  CONSTRAINT caught_fishes_inventory_state_check CHECK (inventory_state IN ('available', 'sold', 'spent', 'removed'))
 )`,
   `ALTER TABLE caught_fishes ADD COLUMN IF NOT EXISTS inventory_state TEXT NOT NULL DEFAULT 'sold'`,
   `ALTER TABLE caught_fishes ALTER COLUMN inventory_state SET DEFAULT 'available'`,
-  `DO $$ BEGIN
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_constraint WHERE conname = 'caught_fishes_inventory_state_check'
-    ) THEN
-      ALTER TABLE caught_fishes ADD CONSTRAINT caught_fishes_inventory_state_check
-        CHECK (inventory_state IN ('available', 'sold', 'spent'));
-    END IF;
-  END $$`,
+  `ALTER TABLE caught_fishes DROP CONSTRAINT IF EXISTS caught_fishes_inventory_state_check`,
+  `ALTER TABLE caught_fishes ADD CONSTRAINT caught_fishes_inventory_state_check
+    CHECK (inventory_state IN ('available', 'sold', 'spent', 'removed'))`,
   `CREATE INDEX IF NOT EXISTS caught_fishes_inventory_lookup_idx
     ON caught_fishes (user_id, chat_id, inventory_state, fish_rarity_point, id)`,
   `CREATE TABLE IF NOT EXISTS fisher_rods (
@@ -183,7 +178,7 @@ export function createRepo(sql: SQL): Repo {
     },
     async deleteLastCatch(userId, chatId): Promise<DeletedCatch | null> {
       return sql.begin(async (tx) => {
-        const rows = (await tx`UPDATE caught_fishes SET inventory_state = 'spent'
+        const rows = (await tx`UPDATE caught_fishes SET inventory_state = 'removed'
           WHERE id = (SELECT id FROM caught_fishes
             WHERE user_id = ${userId} AND chat_id = ${chatId} AND inventory_state = 'available'
             ORDER BY id DESC LIMIT 1 FOR UPDATE)

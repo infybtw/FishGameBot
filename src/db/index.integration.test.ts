@@ -93,6 +93,29 @@ describe.skipIf(databaseUrl === undefined)("Repo inventory economy integration",
     expect((await repo.getInventoryPage(1, -100, 1, 5)).fishes.map((fish) => fish.price)).toEqual([999]);
   });
 
+  test("marks an admin-removed catch as removed without changing balance", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(1, -100, "Player");
+    await repo.recordCatch({
+      username: "Player",
+      userId: 1,
+      chatId: -100,
+      fishName: "Removed",
+      rarity: "Common",
+      point: 1,
+      sizeCm: 30,
+      weightG: 1000,
+      price: 100,
+    });
+
+    expect(await repo.deleteLastCatch(1, -100)).toMatchObject({ fishName: "Removed", price: 100 });
+    expect((await repo.getFisher(1, -100))!.balance).toBe(0);
+    expect((await repo.getInventoryPage(1, -100, 1, 5)).totalCount).toBe(0);
+    const rows = (await sql!`SELECT inventory_state FROM caught_fishes`) as Array<{ inventory_state: string }>;
+    expect(rows).toEqual([{ inventory_state: "removed" }]);
+  });
+
   test("reports the exact missing recipe rarity without changing resources", async () => {
     await migrateSchema(sql!);
     const repo = createRepo(sql!);

@@ -60,7 +60,7 @@ export function chanceUpGranted(firstName: string): string {
 export const CR_USAGE = "Ответьте на сообщение пользователя командой /cr";
 
 export function lastCatchRemoved(firstName: string, fish: DeletedCatch): string {
-  return `Последний улов для ${escapeHtml(firstName)} изъят из инвентаря: ${escapeHtml(fish.fishName)} (${escapeHtml(fish.rarity)})`;
+  return `Последний улов для ${escapeHtml(firstName)} удалён администратором из инвентаря: ${escapeHtml(fish.fishName)} (${escapeHtml(fish.rarity)})`;
 }
 
 export function lastCatchMissing(firstName: string): string {

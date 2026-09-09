@@ -404,7 +404,7 @@ test("/cr spends the replied player's latest available catch without changing ba
 
   await bot.handleUpdate(commandUpdate({ updateId: 206, text: "/cr", from: ADMIN, replyTo: PLAYER }));
 
-  expect(sentTexts).toEqual(["Последний улов для Игрок изъят из инвентаря: Лещ (Редкий)"]);
+  expect(sentTexts).toEqual(["Последний улов для Игрок удалён администратором из инвентаря: Лещ (Редкий)"]);
   expect(repo.calls).toEqual(["deleteLastCatch"]);
   expect(repo.catches).toHaveLength(1);
   expect(repo.catches[0]!.fishName).toBe("Окунь");
