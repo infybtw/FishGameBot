@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, jest, spyOn, test } from "bun:test";
 import {
   boostedCatch,
+  didCatch,
   fakeFishCatch,
   generatePrice,
   generateSize,
@@ -35,6 +36,15 @@ test("rarity weights match the target catch distribution", () => {
     6: 0.1,
   });
   expect(Object.values(RARITY_WEIGHTS).reduce((sum, weight) => sum + weight, 0)).toBe(100);
+});
+
+describe("didCatch", () => {
+  test("uses an exclusive percentage boundary", () => {
+    expect(didCatch(0, () => 0)).toBeFalse();
+    expect(didCatch(50, () => 0.499_999)).toBeTrue();
+    expect(didCatch(50, () => 0.5)).toBeFalse();
+    expect(didCatch(100, () => 0.999_999)).toBeTrue();
+  });
 });
 
 describe("generateSize", () => {
@@ -113,24 +123,17 @@ describe("pickTemplate", () => {
 
 describe("tryCatch", () => {
   const catalog: Catalog = [[{ name: "Окунь", rarity: "Обычный", point: 1 }]];
-  const config = {
-    botToken: "test-token",
-    adminUserId: 1,
-    catchSuccessChance: 100,
-    catchDelaySeconds: 0,
-    databaseUrl: "postgres://localhost:5432/fishbot",
-  };
 
   test("returns null when the catch chance is missed", () => {
     mockRandom([0.9999999999999999]);
 
-    expect(tryCatch(catalog, { ...config, catchSuccessChance: 50 }, "Ира")).toBeNull();
+    expect(tryCatch(catalog, "Ира", 50, 0)).toBeNull();
   });
 
   test("generates a complete catch when the chance succeeds", () => {
     mockRandom([0, 0, 0, 0.5, 0.25, 0.5, 0.5, 0.25, 0.5]);
 
-    expect(tryCatch(catalog, config, "Ира")).toEqual({
+    expect(tryCatch(catalog, "Ира", 100, 0)).toEqual({
       name: "Окунь",
       rarity: "Обычный",
       point: 1,
@@ -139,6 +142,23 @@ describe("tryCatch", () => {
       price: 214.5,
       catcherFirstName: "Ира",
     });
+  });
+});
+
+describe("rod-adjusted rarity rolls", () => {
+  const catalog: Catalog = [
+    [{ name: "1", rarity: "1", point: 1 }],
+    [{ name: "2", rarity: "2", point: 2 }],
+    [{ name: "3", rarity: "3", point: 3 }],
+    [{ name: "4", rarity: "4", point: 4 }],
+  ];
+
+  test("applies the exact step multiplier and normalizes it during the roll", () => {
+    const rawWeights = [1, 2, 3, 4].map((point) => RARITY_WEIGHTS[point]! * (1 + 0.5 * (point - 1)));
+    expect(rawWeights).toEqual([72, 30, 12, 3.75]);
+    expect(rollPoint(catalog, 0, () => 0.915)).toBe(2);
+    expect(rollPoint(catalog, 0.1, () => 0.915)).toBe(3);
+    expect(rollPoint([catalog[0]!, [], catalog[2]!], 0.5, () => 0.99)).toBe(3);
   });
 });
 
@@ -167,7 +187,7 @@ describe("rollPoint with chance-up weights", () => {
     mockRandom([0, 0.449, 0.451, 0.749, 0.751, 0.899, 0.901, 0.969, 0.971, 0.9999]);
 
     const rolled: number[] = [];
-    for (let i = 0; i < 10; i++) rolled.push(rollPoint(BOOST_CATALOG, CHANCE_UP_RARITY_WEIGHTS));
+    for (let i = 0; i < 10; i++) rolled.push(rollPoint(BOOST_CATALOG, 0, Math.random, CHANCE_UP_RARITY_WEIGHTS));
     expect(rolled).toEqual([2, 2, 3, 3, 4, 4, 5, 5, 6, 6]);
   });
 
@@ -178,13 +198,13 @@ describe("rollPoint with chance-up weights", () => {
     ];
     mockRandom([0, 0.9999999999999999]);
 
-    expect(rollPoint(catalog, CHANCE_UP_RARITY_WEIGHTS)).toBe(2);
-    expect(rollPoint(catalog, CHANCE_UP_RARITY_WEIGHTS)).toBe(2);
+    expect(rollPoint(catalog, 0, Math.random, CHANCE_UP_RARITY_WEIGHTS)).toBe(2);
+    expect(rollPoint(catalog, 0, Math.random, CHANCE_UP_RARITY_WEIGHTS)).toBe(2);
   });
 
   test("rejects a catalog without rarity 2-6 groups", () => {
     const catalog: Catalog = [[{ name: "Окунь", rarity: "Обычный", point: 1 }]];
-    expect(() => rollPoint(catalog, CHANCE_UP_RARITY_WEIGHTS)).toThrow(
+    expect(() => rollPoint(catalog, 0, Math.random, CHANCE_UP_RARITY_WEIGHTS)).toThrow(
       "Cannot roll a rarity point: fish catalog is empty",
     );
   });

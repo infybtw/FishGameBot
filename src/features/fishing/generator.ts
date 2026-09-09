@@ -1,4 +1,3 @@
-import type { Config } from "../../config.ts";
 import { round2 } from "../../lib/format.ts";
 import { betaSample, randomInt } from "../../lib/random.ts";
 import { CHANCE_UP_RARITY_WEIGHTS, RARITY_WEIGHTS, type Catalog, type FishTemplate } from "./catalog.ts";
@@ -13,15 +12,21 @@ export type CaughtFish = {
   catcherFirstName: string;
 };
 
+export function didCatch(successChance: number, random: () => number = Math.random): boolean {
+  return random() * 100 < successChance;
+}
+
 export function rollPoint(
   catalog: Catalog,
+  rarityStepBonus = 0,
+  random: () => number = Math.random,
   weights: Readonly<Record<number, number>> = RARITY_WEIGHTS,
 ): number {
   const entries: Array<{ point: number; weight: number }> = [];
   for (let point = 1; point <= catalog.length; point++) {
     const group = catalog[point - 1];
     if (group === undefined || group.length === 0) continue;
-    const weight = weights[point] ?? 0;
+    const weight = (weights[point] ?? 0) * (1 + rarityStepBonus * (point - 1));
     if (weight <= 0) continue;
     entries.push({ point, weight });
   }
@@ -29,7 +34,7 @@ export function rollPoint(
     throw new Error("Cannot roll a rarity point: fish catalog is empty");
   }
   const total = entries.reduce((sum, entry) => sum + entry.weight, 0);
-  let roll = Math.random() * total;
+  let roll = random() * total;
   for (const entry of entries) {
     roll -= entry.weight;
     if (roll < 0) return entry.point;
@@ -76,17 +81,22 @@ export function generateCatch(catalog: Catalog, point: number, catcherFirstName:
   };
 }
 
-export function tryCatch(catalog: Catalog, cfg: Config, catcherFirstName: string): CaughtFish | null {
-  if (randomInt(0, 100) > cfg.catchSuccessChance) return null;
-  return generateCatch(catalog, rollPoint(catalog), catcherFirstName);
+export function tryCatch(
+  catalog: Catalog,
+  catcherFirstName: string,
+  successChance: number,
+  rarityStepBonus: number,
+): CaughtFish | null {
+  if (!didCatch(successChance)) return null;
+  return generateCatch(catalog, rollPoint(catalog, rarityStepBonus), catcherFirstName);
 }
 
 /**
  * Guaranteed chance-up catch: rolls only with `CHANCE_UP_RARITY_WEIGHTS`,
  * so rarity point 1 is unreachable and only boosted points can be selected.
  */
-export function boostedCatch(catalog: Catalog, catcherFirstName: string): CaughtFish {
-  return generateCatch(catalog, rollPoint(catalog, CHANCE_UP_RARITY_WEIGHTS), catcherFirstName);
+export function boostedCatch(catalog: Catalog, catcherFirstName: string, rarityStepBonus = 0): CaughtFish {
+  return generateCatch(catalog, rollPoint(catalog, rarityStepBonus, Math.random, CHANCE_UP_RARITY_WEIGHTS), catcherFirstName);
 }
 
 /**

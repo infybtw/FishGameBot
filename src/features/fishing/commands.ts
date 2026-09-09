@@ -5,6 +5,7 @@ import type { Config } from "../../config.ts";
 import type { Repo } from "../../db/index.ts";
 import { isAdmin, isGroup } from "../../guards.ts";
 import { log } from "../../logger.ts";
+import { getRod } from "../upgrades/rods.ts";
 import { CHANCE_UP_POINTS, getCatalog, hasRarityGroup } from "./catalog.ts";
 import { checkCooldown, cooldownSecondsLeft } from "./cooldown.ts";
 import { boostedCatch, fakeFishCatch, tryCatch, type CaughtFish } from "./generator.ts";
@@ -78,13 +79,15 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
 
     // Runs on every allowed attempt: a user who catches nothing still appears in top with 0.
     await repo.ensureFisher(userId, chatId, firstName);
+    const rod = getRod((await repo.getEquippedRodId(userId, chatId)) ?? "basic") ?? getRod("basic")!;
+    const successChance = Math.min(100, cfg.catchSuccessChance + rod.catchBonusPoints);
     let fish: CaughtFish | null;
     let boosted = false;
     if (chanceUp && (await repo.consumeChanceUp(userId, chatId))) {
       boosted = true;
-      fish = boostedCatch(catalog, firstName);
+      fish = boostedCatch(catalog, firstName, rod.rarityStepBonus);
     } else {
-      fish = tryCatch(catalog, cfg, firstName);
+      fish = tryCatch(catalog, firstName, successChance, rod.rarityStepBonus);
     }
     if (fish === null) {
       log.info({ userId, chatId }, "Catch attempt finished without a fish");
@@ -92,20 +95,17 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
       return;
     }
 
-    await repo.recordCatchWithBalance(
-      {
-        username: firstName,
-        userId,
-        chatId,
-        fishName: fish.name,
-        rarity: fish.rarity,
-        point: fish.point,
-        sizeCm: fish.sizeCm,
-        weightG: fish.weightG,
-        price: fish.price,
-      },
-      fish.price,
-    );
+    await repo.recordCatch({
+      username: firstName,
+      userId,
+      chatId,
+      fishName: fish.name,
+      rarity: fish.rarity,
+      point: fish.point,
+      sizeCm: fish.sizeCm,
+      weightG: fish.weightG,
+      price: fish.price,
+    });
     log.info(
       {
         userId,
@@ -117,6 +117,7 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
         weightG: fish.weightG,
         price: fish.price,
         boosted,
+        rodId: rod.id,
       },
       "Fish caught",
     );
