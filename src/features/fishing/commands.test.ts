@@ -98,16 +98,9 @@ function createFakeRepo(): FakeRepo {
         fishers.set(key(userId, chatId), { userId, chatId, firstName, balance: 0 });
       }
     },
-    async addBalance(userId, chatId, delta) {
-      calls.push("addBalance");
-      const fisher = fishers.get(key(userId, chatId));
-      if (fisher !== undefined) fisher.balance += delta;
-    },
-    async recordCatchWithBalance(catch_, delta) {
-      calls.push("recordCatchWithBalance");
+    async recordCatch(catch_) {
+      calls.push("recordCatch");
       catches.push(catch_);
-      const fisher = fishers.get(key(catch_.userId, catch_.chatId));
-      if (fisher !== undefined) fisher.balance += delta;
     },
     async deleteLastCatch(userId, chatId) {
       calls.push("deleteLastCatch");
@@ -118,8 +111,6 @@ function createFakeRepo(): FakeRepo {
       }
       if (index === -1) return null;
       const removed = catches.splice(index, 1)[0]!;
-      const fisher = fishers.get(key(userId, chatId));
-      if (fisher !== undefined) fisher.balance -= removed.price;
       return { fishName: removed.fishName, rarity: removed.rarity, point: removed.point, price: removed.price };
     },
     async getCatchTime(userId, chatId) {
@@ -171,8 +162,36 @@ function createFakeRepo(): FakeRepo {
       calls.push("getFisher");
       return fishers.get(key(userId, chatId)) ?? null;
     },
+    async getInventoryPage() {
+      return unexpected("getInventoryPage");
+    },
+    async getRarityInventory() {
+      return unexpected("getRarityInventory");
+    },
+    async getRaritySalePreview() {
+      return unexpected("getRaritySalePreview");
+    },
+    async sellFish() {
+      return unexpected("sellFish");
+    },
+    async sellRarity() {
+      return unexpected("sellRarity");
+    },
+    async purchaseRod() {
+      return unexpected("purchaseRod");
+    },
+    async listPurchasedRodIds() {
+      return unexpected("listPurchasedRodIds");
+    },
+    async equipRod() {
+      return unexpected("equipRod");
+    },
     async listTemplates() {
       return unexpected("listTemplates");
+    },
+    async getEquippedRodId() {
+      calls.push("getEquippedRodId");
+      return "basic";
     },
     async replaceAllTemplates() {
       return unexpected("replaceAllTemplates");
@@ -355,9 +374,9 @@ test("/cdr_all removes every cooldown in the current chat only", async () => {
   expect(repo.catchTimes.has("9:-200")).toBe(true);
 });
 
-test("/cr removes the replied player's latest catch and reverses its price", async () => {
+test("/cr spends the replied player's latest available catch without changing balance", async () => {
   const { bot, sentTexts, repo } = createTestBot();
-  repo.fishers.set("9:-100", { userId: 9, chatId: -100, firstName: "Игрок", balance: 214.5 + 719.85 });
+  repo.fishers.set("9:-100", { userId: 9, chatId: -100, firstName: "Игрок", balance: 0 });
   repo.catches.push(
     {
       username: "Игрок",
@@ -385,11 +404,11 @@ test("/cr removes the replied player's latest catch and reverses its price", asy
 
   await bot.handleUpdate(commandUpdate({ updateId: 206, text: "/cr", from: ADMIN, replyTo: PLAYER }));
 
-  expect(sentTexts).toEqual(["Последний улов для Игрок удалён: Лещ (Редкий, -719.85р)"]);
+  expect(sentTexts).toEqual(["Последний улов для Игрок изъят из инвентаря: Лещ (Редкий)"]);
   expect(repo.calls).toEqual(["deleteLastCatch"]);
   expect(repo.catches).toHaveLength(1);
   expect(repo.catches[0]!.fishName).toBe("Окунь");
-  expect(repo.fishers.get("9:-100")!.balance).toBe(214.5);
+  expect(repo.fishers.get("9:-100")!.balance).toBe(0);
 });
 
 test("/cr without a reply or without catches changes no state", async () => {
@@ -523,9 +542,9 @@ test("/fish keeps a granted bonus across a blocked attempt and consumes it on th
   expect(repo.catches[0]!.userId).toBe(9);
   expect(repo.catches[0]!.chatId).toBe(-100);
   expect(repo.chanceUps.has("9:-100")).toBe(false);
-  expect(repo.calls.filter((call) => call === "recordCatchWithBalance")).toHaveLength(1);
-  expect(repo.fishers.get("9:-100")!.balance).toBe(repo.catches[0]!.price);
-  expect(sentTexts.at(-1)).toContain("<b>Имя:</b> Лещ");
+  expect(repo.calls.filter((call) => call === "recordCatch")).toHaveLength(1);
+  expect(repo.fishers.get("9:-100")!.balance).toBe(0);
+  expect(sentTexts.at(-1)).toContain("добавлена в инвентарь");
 
   // A later allowed attempt follows normal generation: point 1 under normal weights.
   nowSpy.mockReturnValue((start + 1801 + 3601) * 1000);

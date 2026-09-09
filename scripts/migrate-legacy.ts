@@ -53,9 +53,9 @@ await copyTable(
   () => legacy.query(CAUGHT_SQL).all() as AnyRow[],
   (row) =>
     sql`INSERT INTO caught_fishes
-      (id, username, user_id, fish_name, fish_weight, fish_size, fish_rarity, fish_rarity_point, fish_price, chat_id)
+      (id, username, user_id, fish_name, fish_weight, fish_size, fish_rarity, fish_rarity_point, fish_price, chat_id, inventory_state)
       VALUES (${row.id}, ${row.username}, ${row.user_id}, ${row.fish_name}, ${row.fish_weight}, ${row.fish_size},
-      ${row.fish_rarity}, ${row.fish_rarity_point}, ${row.fish_price}, ${row.chat_id})
+      ${row.fish_rarity}, ${row.fish_rarity_point}, ${row.fish_price}, ${row.chat_id}, 'sold')
       ON CONFLICT DO NOTHING RETURNING id`,
 );
 

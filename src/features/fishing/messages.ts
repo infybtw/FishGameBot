@@ -13,7 +13,8 @@ export function catchCard(fish: CaughtFish): string {
     `<b>Вес:</b> ${round2(fish.weightG / 1000)}кг\n` +
     `<b>Размер:</b> ${fish.sizeCm}см\n` +
     `\n` +
-    `<b>Цена:</b> ${round2(fish.price)}рублей`
+    `<b>Цена:</b> ${round2(fish.price)}рублей\n` +
+    `Рыба добавлена в инвентарь. Продайте её через /profile.`
   );
 }
 
@@ -59,7 +60,7 @@ export function chanceUpGranted(firstName: string): string {
 export const CR_USAGE = "Ответьте на сообщение пользователя командой /cr";
 
 export function lastCatchRemoved(firstName: string, fish: DeletedCatch): string {
-  return `Последний улов для ${escapeHtml(firstName)} удалён: ${escapeHtml(fish.fishName)} (${escapeHtml(fish.rarity)}, -${round2(fish.price)}р)`;
+  return `Последний улов для ${escapeHtml(firstName)} изъят из инвентаря: ${escapeHtml(fish.fishName)} (${escapeHtml(fish.rarity)})`;
 }
 
 export function lastCatchMissing(firstName: string): string {
