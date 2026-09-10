@@ -1,7 +1,7 @@
 import type { Config } from "../../config.ts";
 import type { Repo } from "../../db/index.ts";
 
-export type CooldownCheck = { ok: true } | { ok: false; secondsLeft: number };
+export type CooldownCheck = { ok: true; startedAt: number } | { ok: false; secondsLeft: number };
 
 /**
  * Seconds until the cooldown started at `lastCatchTime` expires at `now`;
@@ -24,12 +24,12 @@ export async function checkCooldown(
   const last = await repo.getCatchTime(userId, chatId);
   if (last === null) {
     await repo.upsertCatchTime(userId, chatId, now);
-    return { ok: true };
+    return { ok: true, startedAt: now };
   }
   const secondsLeft = cooldownSecondsLeft(last, cfg.catchDelaySeconds, now);
   if (secondsLeft < 0) {
     await repo.upsertCatchTime(userId, chatId, now);
-    return { ok: true };
+    return { ok: true, startedAt: now };
   }
   return { ok: false, secondsLeft };
 }

@@ -190,4 +190,16 @@ describe.skipIf(databaseUrl === undefined)("Repo inventory economy integration",
     expect(purchases.filter((result) => result.status === "purchased")).toHaveLength(1);
     expect(purchases.filter((result) => result.status === "already_owned")).toHaveLength(1);
   });
+
+  test("multiplyBalance scales only the selected user and chat balance", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(1, -100, "Player");
+    await repo.ensureFisher(1, -200, "Player");
+    await sql!`UPDATE fishers SET user_balance = 250 WHERE (user_id, chat_id) IN ((1, -100), (1, -200))`;
+
+    expect(await repo.multiplyBalance(1, -100, 1.2)).toBe(300);
+    expect((await repo.getFisher(1, -100))!.balance).toBe(300);
+    expect((await repo.getFisher(1, -200))!.balance).toBe(250);
+  });
 });

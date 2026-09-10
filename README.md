@@ -133,6 +133,7 @@ bun run start
 | `ADMIN_USER_ID` | Yes | — | Numeric Telegram user ID allowed to use admin commands. |
 | `CATCH_SUCCESS_CHANCE` | Yes for host runs | `50` in Compose | Integer from `0` to `100`. |
 | `CATCH_DELAY` | Yes for host runs | `3600` in Compose | Non-negative cooldown in seconds, scoped to each user and chat. |
+| `CURSE_DROP_CHANCE` | Yes for host runs | `20` in Compose | Integer from 0 to 100. Chance to apply one curse after a successful catch. |
 | `DATABASE_URL` | No | `postgres://localhost:5432/fishbot` | PostgreSQL connection string. The provided host-development value includes the Compose credentials. |
 | `LOG_LEVEL` | No | `info` | One of `debug`, `info`, `warn`, or `error`. |
 | `POSTGRES_PASSWORD` | Docker Compose only | `testpass` | Password shared by the Compose PostgreSQL and bot services. Use a strong value outside local development. |
