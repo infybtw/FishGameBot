@@ -15,6 +15,7 @@ const CFG: Config = {
   adminUserId: 1,
   catchSuccessChance: 50,
   catchDelaySeconds: 0,
+  curseDropChance: 0,
   databaseUrl: "postgres://localhost/fishbot_test",
 };
 
@@ -135,6 +136,13 @@ function createFakeRepo(): FakeRepo {
         }
       }
       return removed;
+    },
+    async multiplyBalance(userId, chatId, multiplier) {
+      calls.push("multiplyBalance");
+      const fisher = fishers.get(key(userId, chatId));
+      if (fisher === undefined) return 0;
+      fisher.balance = fisher.balance * multiplier;
+      return fisher.balance;
     },
     async listCatchTimes(chatId) {
       calls.push("listCatchTimes");
@@ -584,6 +592,121 @@ test("/fish defers a granted bonus while the catalog lacks rarity 2-6 templates"
   await bot.handleUpdate(commandUpdate({ updateId: 28, text: "/fish", from: PLAYER }));
   expect(repo.catches).toHaveLength(1);
   expect(repo.catches[0]!.point).toBe(2);
+
+  nowSpy.mockRestore();
+});
+
+test("/fish heavy_net curse doubles the fresh cooldown while the catch stays available", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, catchDelaySeconds: 3600, curseDropChance: 20 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  const start = 30_000_000;
+  const nowSpy = spyOn(Date, "now").mockReturnValue(start * 1000);
+
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS, 0, 0]);
+  await bot.handleUpdate(commandUpdate({ updateId: 300, text: "/fish", from: PLAYER }));
+
+  expect(sentTexts).toHaveLength(1);
+  expect(sentTexts[0]).toContain("<b>Имя:</b> Окунь");
+  expect(sentTexts[0]!.endsWith(
+    "\n\n🪢 <b>Проклятие тяжёлой сети</b>\nКулдаун увеличен до 2часов 0минут 0секунд.",
+  )).toBe(true);
+  expect(repo.catches).toHaveLength(1);
+  expect(repo.catchTimes.get("9:-100")).toBe(start + 3600);
+
+  // One normal hour later: still inside the doubled cooldown.
+  nowSpy.mockReturnValue((start + 3600) * 1000);
+  mockRandom([]);
+  await bot.handleUpdate(commandUpdate({ updateId: 301, text: "/fish", from: PLAYER }));
+  expect(sentTexts.at(-1)).toContain("Вы недавно ловили рыбу");
+  expect(repo.catches).toHaveLength(1);
+  expect(repo.catchTimes.get("9:-100")).toBe(start + 3600);
+
+  // Two hours later: the doubled cooldown has fully elapsed.
+  nowSpy.mockReturnValue((start + 7201) * 1000);
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS, 0.9]);
+  await bot.handleUpdate(commandUpdate({ updateId: 302, text: "/fish", from: PLAYER }));
+  expect(repo.catches).toHaveLength(2);
+  expect(sentTexts.at(-1)).toContain("<b>Имя:</b> Окунь");
+
+  nowSpy.mockRestore();
+});
+
+test("/fish second_cast curse clears the fresh cooldown so the next /fish casts immediately", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, catchDelaySeconds: 3600, curseDropChance: 20 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  const start = 40_000_000;
+  const nowSpy = spyOn(Date, "now").mockReturnValue(start * 1000);
+
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS, 0, 0.32]);
+  await bot.handleUpdate(commandUpdate({ updateId: 303, text: "/fish", from: PLAYER }));
+
+  expect(sentTexts).toHaveLength(1);
+  expect(sentTexts[0]).toContain("<b>Имя:</b> Окунь");
+  expect(sentTexts[0]!.endsWith(
+    "\n\n🌀 <b>Проклятие второго заброса</b>\nВаш кулдаун снят: можно ловить снова.",
+  )).toBe(true);
+  expect(repo.catches).toHaveLength(1);
+  expect(repo.catchTimes.has("9:-100")).toBe(false);
+
+  // The just-created cooldown is gone: an immediate second /fish catches again.
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS, 0.9]);
+  await bot.handleUpdate(commandUpdate({ updateId: 304, text: "/fish", from: PLAYER }));
+  expect(repo.catches).toHaveLength(2);
+  expect(sentTexts).toHaveLength(2);
+  expect(sentTexts[1]).toContain("<b>Имя:</b> Окунь");
+  expect(sentTexts[1]).not.toContain("Вы недавно ловили рыбу");
+
+  nowSpy.mockRestore();
+});
+
+test("/fish storm_tide curse clears every cooldown in this chat only and reports the count", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, catchDelaySeconds: 3600, curseDropChance: 100 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  const start = 50_000_000;
+  const nowSpy = spyOn(Date, "now").mockReturnValue(start * 1000);
+  repo.catchTimes.set("8:-100", start - 60);
+  repo.catchTimes.set("9:-200", start - 60);
+
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS, 0, 0.64]);
+  await bot.handleUpdate(commandUpdate({ updateId: 305, text: "/fish", from: PLAYER }));
+
+  expect(sentTexts).toHaveLength(1);
+  expect(sentTexts[0]).toContain("<b>Имя:</b> Окунь");
+  expect(sentTexts[0]!.endsWith(
+    "\n\n🌊 <b>Проклятие штормового прилива</b>\nКулдауны сняты для всех в этом чате (2).",
+  )).toBe(true);
+  expect(repo.catches).toHaveLength(1);
+  expect(repo.catchTimes.has("8:-100")).toBe(false);
+  expect(repo.catchTimes.has("9:-200")).toBe(true);
+  expect(repo.catchTimes.size).toBe(1);
+
+  nowSpy.mockRestore();
+});
+
+test("/fish golden_scales curse multiplies only the catcher's chat balance, not the catch price", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, curseDropChance: 20 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  const start = 60_000_000;
+  const nowSpy = spyOn(Date, "now").mockReturnValue(start * 1000);
+  repo.fishers.set("9:-100", { userId: 9, chatId: -100, firstName: "Игрок", balance: 250 });
+  repo.fishers.set("9:-200", { userId: 9, chatId: -200, firstName: "Игрок", balance: 250 });
+
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS, 0, 0.69, 0.99]);
+  await bot.handleUpdate(commandUpdate({ updateId: 306, text: "/fish", from: PLAYER }));
+
+  expect(sentTexts).toHaveLength(1);
+  expect(sentTexts[0]).toContain("<b>Имя:</b> Окунь");
+  expect(sentTexts[0]!.endsWith("\n\n🪙 <b>Проклятие золотой чешуи</b>\nВаш баланс умножен на ×1.2.")).toBe(true);
+  expect(repo.catches).toHaveLength(1);
+  expect(sentTexts[0]).toContain(`<b>Цена:</b> ${repo.catches[0]!.price}рублей`);
+  expect(repo.fishers.get("9:-100")!.balance).toBeCloseTo(300, 10);
+  expect(repo.fishers.get("9:-200")!.balance).toBe(250);
+  // The money curse never touches the catch's own cooldown.
+  expect(repo.catchTimes.get("9:-100")).toBe(start);
 
   nowSpy.mockRestore();
 });

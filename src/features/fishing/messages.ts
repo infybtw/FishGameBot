@@ -1,6 +1,7 @@
 import type { DeletedCatch, TopFisherRow } from "../../db/index.ts";
 import { escapeHtml, round2 } from "../../lib/format.ts";
 import { formatRemaining } from "./cooldown.ts";
+import { CURSES } from "./curses.ts";
 import type { CaughtFish } from "./generator.ts";
 import { RARITY_WEIGHTS, type Catalog } from "./catalog.ts";
 
@@ -37,6 +38,22 @@ export function cooldownReset(firstName: string): string {
 
 export function cooldownsResetAll(count: number): string {
   return `Кулдауны сняты для всех (${count})`;
+}
+
+export function heavyNetCurse(catchDelaySeconds: number): string {
+  return `🪢 <b>${CURSES.heavy_net.name}</b>\nКулдаун увеличен до ${formatRemaining(catchDelaySeconds * 2)}.`;
+}
+
+export function secondCastCurse(): string {
+  return `🌀 <b>${CURSES.second_cast.name}</b>\nВаш кулдаун снят: можно ловить снова.`;
+}
+
+export function stormTideCurse(removed: number): string {
+  return `🌊 <b>${CURSES.storm_tide.name}</b>\nКулдауны сняты для всех в этом чате (${removed}).`;
+}
+
+export function goldenScalesCurse(multiplier: number): string {
+  return `🪙 <b>${CURSES.golden_scales.name}</b>\nВаш баланс умножен на ×${round2(multiplier)}.`;
 }
 
 export const CDR_USAGE = "Ответьте на сообщение пользователя командой /cdr";

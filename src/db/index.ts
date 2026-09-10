@@ -143,6 +143,7 @@ export type Repo = {
   hasChanceUp(userId: number, chatId: number): Promise<boolean>;
   consumeChanceUp(userId: number, chatId: number): Promise<boolean>;
   getFisher(userId: number, chatId: number): Promise<FisherRow | null>;
+  multiplyBalance(userId: number, chatId: number, multiplier: number): Promise<number>;
   getInventoryPage(userId: number, chatId: number, page: number, pageSize: number): Promise<InventoryPage>;
   getRarityInventory(userId: number, chatId: number): Promise<RarityInventorySummary[]>;
   getRaritySalePreview(userId: number, chatId: number, point: number): Promise<RaritySalePreview | null>;
@@ -206,6 +207,12 @@ export function createRepo(sql: SQL): Repo {
     },
     async deleteCatchTime(userId: number, chatId: number): Promise<void> {
       await sql`DELETE FROM catch_time WHERE user_id = ${userId} AND chat_id = ${chatId}`;
+    },
+    async multiplyBalance(userId, chatId, multiplier): Promise<number> {
+      const rows = (await sql`UPDATE fishers SET user_balance = user_balance * ${multiplier}
+        WHERE user_id = ${userId} AND chat_id = ${chatId}
+        RETURNING user_balance`) as Array<Record<string, unknown>>;
+      return firstNumber(rows, "user_balance");
     },
     async deleteCatchTimes(chatId: number): Promise<number> {
       const rows = (await sql`DELETE FROM catch_time WHERE chat_id = ${chatId} RETURNING user_id`) as unknown[];

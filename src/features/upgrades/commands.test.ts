@@ -12,6 +12,7 @@ const cfg: Config = {
   adminUserId: 1,
   catchSuccessChance: 50,
   catchDelaySeconds: 0,
+  curseDropChance: 0,
   databaseUrl: "postgres://example/fishbot_test",
 };
 
@@ -49,6 +50,9 @@ function createRepoFake() {
     getRaritySalePreview: async () => null,
     purchaseRod: async () => ({ status: "already_owned" as const }),
     equipRod: async () => ({ status: "not_owned" as const }),
+    multiplyBalance: async () => {
+      throw new Error("Unexpected repo call in test: multiplyBalance");
+    },
   } as unknown as Repo;
   return { repo, calls };
 }

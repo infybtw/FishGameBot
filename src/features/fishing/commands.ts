@@ -8,6 +8,7 @@ import { log } from "../../logger.ts";
 import { getRod } from "../upgrades/rods.ts";
 import { CHANCE_UP_POINTS, getCatalog, hasRarityGroup } from "./catalog.ts";
 import { checkCooldown, cooldownSecondsLeft } from "./cooldown.ts";
+import { rollBalanceMultiplier, rollCurse, type Curse } from "./curses.ts";
 import { boostedCatch, fakeFishCatch, tryCatch, type CaughtFish } from "./generator.ts";
 import {
   CDR_USAGE,
@@ -23,11 +24,15 @@ import {
   cooldownReset,
   cooldownsResetAll,
   fishCatalogMessage,
+  goldenScalesCurse,
+  heavyNetCurse,
   lastCatchMissing,
   lastCatchRemoved,
   nothingCaught,
+  secondCastCurse,
   statsEmpty,
   statsMsg,
+  stormTideCurse,
   topFishers,
 } from "./messages.ts";
 
@@ -48,6 +53,38 @@ function replyTarget(ctx: Context): { id: number; firstName: string } | null {
 
 function isAdminInGroup(ctx: Context, cfg: Config): ctx is Context & { from: User } {
   return ctx.from !== undefined && isGroup(ctx) && isAdmin(ctx, cfg.adminUserId);
+}
+
+/** Applies the curse's effect with chat-scoped repo semantics and returns its message. */
+async function applyCurse(
+  curse: Curse,
+  repo: Repo,
+  cfg: Config,
+  userId: number,
+  chatId: number,
+  cooldownStartedAt: number,
+): Promise<string> {
+  switch (curse.kind) {
+    case "heavy_net": {
+      // Normal expiry adds CATCH_DELAY to the stored timestamp, so rewriting
+      // startedAt + delay makes this catch take exactly CATCH_DELAY * 2.
+      await repo.upsertCatchTime(userId, chatId, cooldownStartedAt + cfg.catchDelaySeconds);
+      return heavyNetCurse(cfg.catchDelaySeconds);
+    }
+    case "second_cast": {
+      await repo.deleteCatchTime(userId, chatId);
+      return secondCastCurse();
+    }
+    case "storm_tide": {
+      const removed = await repo.deleteCatchTimes(chatId);
+      return stormTideCurse(removed);
+    }
+    case "golden_scales": {
+      const multiplier = rollBalanceMultiplier();
+      await repo.multiplyBalance(userId, chatId, multiplier);
+      return goldenScalesCurse(multiplier);
+    }
+  }
 }
 
 export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: Repo): void {
@@ -121,7 +158,14 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
       },
       "Fish caught",
     );
-    await ctx.reply(catchCard(fish));
+    const curse = rollCurse(cfg.curseDropChance);
+    if (curse === null) {
+      await ctx.reply(catchCard(fish));
+      return;
+    }
+    const curseText = await applyCurse(curse, repo, cfg, userId, chatId, cooldown.startedAt);
+    log.info({ userId, chatId, curse: curse.kind }, "Curse applied");
+    await ctx.reply(`${catchCard(fish)}\n\n${curseText}`);
   });
 
   bot.command("cdr", async (ctx) => {

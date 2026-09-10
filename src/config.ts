@@ -3,6 +3,7 @@ export type Config = {
   adminUserId: number;
   catchSuccessChance: number;
   catchDelaySeconds: number;
+  curseDropChance: number;
   databaseUrl: string;
 };
 
@@ -35,6 +36,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     problems.push("CATCH_DELAY must be a non-negative integer");
   }
 
+  const curseDropChance = readInt(env.CURSE_DROP_CHANCE);
+  if (curseDropChance === null || curseDropChance < 0 || curseDropChance > 100) {
+    problems.push("CURSE_DROP_CHANCE must be an integer between 0 and 100");
+  }
+
   const databaseUrl = env.DATABASE_URL?.trim();
   if (databaseUrl !== undefined && databaseUrl !== "" && !/^postgres(ql)?:\/\//.test(databaseUrl)) {
     problems.push("DATABASE_URL must be a postgres:// or postgresql:// connection string");
@@ -49,6 +55,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     adminUserId: adminUserId!,
     catchSuccessChance: catchSuccessChance!,
     catchDelaySeconds: catchDelaySeconds!,
+    curseDropChance: curseDropChance!,
     databaseUrl: databaseUrl || "postgres://localhost:5432/fishbot",
   };
 }
