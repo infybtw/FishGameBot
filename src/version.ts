@@ -1,4 +1,4 @@
-export const BOT_VERSION = "v0.3.0";
+export const BOT_VERSION = "v0.4.0";
 
 export const BOT_VERSION_LABEL = `BETA ${BOT_VERSION}`;
 
