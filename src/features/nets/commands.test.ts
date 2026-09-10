@@ -187,6 +187,7 @@ test("/net in a group opens an owner-bound menu and initializes the fisher", asy
   expect(String(send.text)).toContain("Рыбацкая сеть");
   expect(JSON.stringify(send.reply_markup)).toContain("Закинуть сеть");
   expect(JSON.stringify(send.reply_markup)).toContain(buildNetCallbackData(OWNER.id, { kind: "cast" }));
+  expect(apiCalls).toContainEqual({ method: "deleteMessage", payload: { chat_id: GROUP_CHAT.id, message_id: 1 } });
   expect(nets.size).toBe(0);
 });
 

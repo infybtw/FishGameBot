@@ -276,6 +276,7 @@ export function registerTradeCommands(bot: Bot<BotContext>, repo: Repo): void {
       reply_markup: screen.keyboard,
       ephemeral_message_parameters: { receiver_user_id: userId },
     });
+    await ctx.deleteMessage();
   });
 
   bot.callbackQuery(/^tr:/, async (ctx) => {

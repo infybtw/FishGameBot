@@ -168,6 +168,7 @@ test("profile ensures the fisher before profile reads and binds keyboard ownersh
   const sent = apiCalls.find((call) => call.method === "sendMessage");
   expect(JSON.stringify(sent?.payload)).toContain('"ephemeral_message_parameters":{"receiver_user_id":11}');
   expect(JSON.stringify(sent?.payload.reply_markup)).toContain("upg:11:fish:1");
+  expect(apiCalls).toContainEqual({ method: "deleteMessage", payload: { chat_id: -100, message_id: 1 } });
 });
 
 test("purchase and equip failures redraw rod details with precise feedback", async () => {

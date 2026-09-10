@@ -386,6 +386,7 @@ describe("/trade command", () => {
       ["Заплатить деньгами"],
     ]);
     expect(calls).not.toContain("createTrade");
+    expect(apiCalls).toContainEqual({ method: "deleteMessage", payload: { chat_id: GROUP_CHAT.id, message_id: 1 } });
   });
 
   test("private, no-reply, bot-reply, and self-reply invocations do not create an offer", async () => {
@@ -412,6 +413,7 @@ describe("/trade command", () => {
         expect(sends[0]!.payload.ephemeral_message_parameters).toBeUndefined();
       }
       expect(calls).not.toContain("createTrade");
+      expect(apiCalls).not.toContainEqual(expect.objectContaining({ method: "deleteMessage" }));
     }
   });
 });

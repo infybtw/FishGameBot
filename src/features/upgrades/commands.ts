@@ -172,6 +172,7 @@ export function registerUpgradeCommands(bot: Bot<BotContext>, cfg: Config, repo:
       reply_markup: screen.keyboard,
       ephemeral_message_parameters: { receiver_user_id: userId },
     });
+    await ctx.deleteMessage();
   });
 
   bot.callbackQuery(/^upg:/, async (ctx) => {
