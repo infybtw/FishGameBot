@@ -12,6 +12,7 @@ const PUBLIC_GROUP_COMMANDS: BotCommand[] = [
   { command: "fishes", description: "Каталог рыб чата" },
   { command: "fishtop", description: "Топ рыбаков чата" },
   { command: "stats", description: "Статистика рыбалки" },
+  { command: "trade", description: "Предложить обмен рыбы или денег" },
   INFO_COMMAND,
 ];
 

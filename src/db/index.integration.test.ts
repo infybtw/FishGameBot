@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { createRepo, createSql, migrateSchema, type CatchInsert, type RodPurchaseSpec } from "./index.ts";
+import { createRepo, createSql, migrateSchema, type CatchInsert, type CreateTradeResult, type RodPurchaseSpec, type TradeRow } from "./index.ts";
 import { NET_DURATION_SECONDS } from "../features/nets/net.ts";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -281,5 +281,275 @@ describe.skipIf(databaseUrl === undefined)("Repo fishing nets integration", () =
     await repo.markFishingNetReadyNotified(2, -100, now);
     const rest = await repo.listReadyUnnotifiedFishingNets(now);
     expect(rest.map((row) => row.userId)).toEqual([3]);
+  });
+});
+
+describe.skipIf(databaseUrl === undefined)("Repo trades integration", () => {
+  beforeEach(async () => {
+    await resetSchema();
+  });
+
+  /** Narrows a createTrade result to its persisted row, failing the test on stale. */
+  function tradeOf(created: CreateTradeResult): TradeRow {
+    if (created.status !== "created") throw new Error(`expected trade creation, got ${created.status}`);
+    return created.trade;
+  }
+
+  async function seedTraders(): Promise<void> {
+    await migrateSchema(sql!);
+    await sql!`INSERT INTO fishers (user_id, chat_id, user_first_name, user_balance)
+      VALUES (1, -100, 'Иван', 0), (2, -100, 'Аня', 0)`;
+  }
+
+  async function fishRow(id: number): Promise<{ user_id: number; username: string; inventory_state: string }> {
+    const rows = (await sql!`SELECT user_id, username, inventory_state FROM caught_fishes WHERE id = ${id}`) as Array<{
+      user_id: unknown;
+      username: string;
+      inventory_state: string;
+    }>;
+    const row = rows[0]!;
+    return { user_id: Number(row.user_id), username: row.username, inventory_state: row.inventory_state };
+  }
+
+  test("persists a pending trade only from distinct available catches in expected hands", async () => {
+    await seedTraders();
+    const repo = createRepo(sql!);
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    await createAvailableCatch(2, -100, 2, 200, "Щука");
+    const offeredId = (await repo.getInventoryPage(1, -100, 1, 5)).fishes[0]!.id;
+    const requestedId = (await repo.getInventoryPage(2, -100, 1, 5)).fishes[0]!.id;
+    const base = {
+      chatId: -100,
+      initiatorUserId: 1,
+      initiatorFirstName: "Иван",
+      targetUserId: 2,
+      targetFirstName: "Аня",
+    };
+
+    // Requested fish must belong to the target.
+    expect(
+      await repo.createTrade({ ...base, offer: { kind: "fish", offeredFishId: requestedId }, requestedFishId: offeredId }),
+    ).toEqual({ status: "stale" });
+    // The same catch cannot be both sides of the deal.
+    expect(
+      await repo.createTrade({ ...base, offer: { kind: "fish", offeredFishId: offeredId }, requestedFishId: offeredId }),
+    ).toEqual({ status: "stale" });
+    // Money offers must be positive.
+    expect(await repo.createTrade({ ...base, offer: { kind: "money", amount: 0 }, requestedFishId: requestedId })).toEqual({
+      status: "stale",
+    });
+
+    const created = await repo.createTrade({
+      ...base,
+      offer: { kind: "fish", offeredFishId: offeredId },
+      requestedFishId: requestedId,
+    });
+    expect(created.status).toBe("created");
+    if (created.status !== "created") return;
+    expect(created.trade).toMatchObject({
+      chatId: -100,
+      initiatorUserId: 1,
+      targetUserId: 2,
+      status: "pending",
+      offer: { kind: "fish" },
+    });
+    expect(created.trade.offer).toEqual({
+      kind: "fish",
+      fish: expect.objectContaining({ id: offeredId, name: "Окунь", price: 100 }),
+    });
+    expect(created.trade.requestedFish).toEqual(expect.objectContaining({ id: requestedId, name: "Щука", price: 200 }));
+    expect(await repo.getTrade(created.trade.id)).toEqual(created.trade);
+  });
+
+  test("database constraints enforce terminal statuses and exactly one positive offer", async () => {
+    await seedTraders();
+    const repo = createRepo(sql!);
+    await createAvailableCatch(1, -100, 1, 100);
+    await createAvailableCatch(2, -100, 2, 200);
+    const offeredId = (await repo.getInventoryPage(1, -100, 1, 5)).fishes[0]!.id;
+    const requestedId = (await repo.getInventoryPage(2, -100, 1, 5)).fishes[0]!.id;
+    const insertWith = (offeredFishId: number | null, offeredMoney: number | null, status: string): Promise<unknown> =>
+      sql!`INSERT INTO trades (chat_id, initiator_user_id, initiator_first_name, target_user_id, target_first_name,
+        offered_fish_id, offered_money, requested_fish_id, status)
+        VALUES (-100, 1, 'Иван', 2, 'Аня', ${offeredFishId}, ${offeredMoney}, ${requestedId}, ${status})`;
+
+    // Bun SQL promises do not resolve through expect().rejects; catch directly.
+    const rejected = async (task: Promise<unknown>): Promise<boolean> => {
+      try {
+        await task;
+        return false;
+      } catch {
+        return true;
+      }
+    };
+
+    // Both offer fields set → violates the exactly-one-offer constraint.
+    expect(await rejected(insertWith(offeredId, 5, "pending"))).toBeTrue();
+    // Non-positive money → violates the same constraint.
+    expect(await rejected(insertWith(null, -5, "pending"))).toBeTrue();
+    // Unknown status → violates the status constraint.
+    expect(await rejected(insertWith(null, 5, "cancelled"))).toBeTrue();
+    // A well-formed money offer persists.
+    expect(await rejected(insertWith(null, 5, "pending"))).toBeFalse();
+  });
+
+  test("accepted fish-for-fish swaps user_id and username only in that chat", async () => {
+    await seedTraders();
+    const repo = createRepo(sql!);
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    await createAvailableCatch(2, -100, 2, 200, "Щука");
+    await createAvailableCatch(1, -200, 1, 50, "Другая");
+    const offeredId = (await repo.getInventoryPage(1, -100, 1, 5)).fishes[0]!.id;
+    const requestedId = (await repo.getInventoryPage(2, -100, 1, 5)).fishes[0]!.id;
+    const created = await repo.createTrade({
+      chatId: -100,
+      initiatorUserId: 1,
+      initiatorFirstName: "Иван",
+      targetUserId: 2,
+      targetFirstName: "Аня",
+      offer: { kind: "fish", offeredFishId: offeredId },
+      requestedFishId: requestedId,
+    });
+    expect(created.status).toBe("created");
+
+    expect(await repo.acceptTrade(tradeOf(created).id, 2, -100)).toEqual({ status: "accepted" });
+
+    expect(await fishRow(offeredId)).toEqual({ user_id: 2, username: "Аня", inventory_state: "available" });
+    expect(await fishRow(requestedId)).toEqual({ user_id: 1, username: "Иван", inventory_state: "available" });
+    const otherChat = (await sql!`SELECT user_id FROM caught_fishes WHERE fish_name = 'Другая'`) as Array<{
+      user_id: number;
+    }>;
+    expect(Number(otherChat[0]!.user_id)).toBe(1);
+    expect((await repo.getFisher(1, -100))!.balance).toBe(0);
+    expect((await repo.getFisher(2, -100))!.balance).toBe(0);
+    expect((await repo.getTrade(tradeOf(created).id))!.status).toBe("accepted");
+  });
+
+  test("accepted money-for-fish moves exact two-decimal balances and the fish", async () => {
+    await seedTraders();
+    const repo = createRepo(sql!);
+    await sql!`UPDATE fishers SET user_balance = 10.25 WHERE user_id = 1 AND chat_id = -100`;
+    await createAvailableCatch(2, -100, 2, 200, "Щука");
+    const requestedId = (await repo.getInventoryPage(2, -100, 1, 5)).fishes[0]!.id;
+    const created = await repo.createTrade({
+      chatId: -100,
+      initiatorUserId: 1,
+      initiatorFirstName: "Иван",
+      targetUserId: 2,
+      targetFirstName: "Аня",
+      offer: { kind: "money", amount: 7.31 },
+      requestedFishId: requestedId,
+    });
+    expect(created.status).toBe("created");
+
+    expect(await repo.acceptTrade(tradeOf(created).id, 2, -100)).toEqual({ status: "accepted" });
+
+    expect((await repo.getFisher(1, -100))!.balance).toBeCloseTo(2.94, 10);
+    expect((await repo.getFisher(2, -100))!.balance).toBeCloseTo(7.31, 10);
+    expect(await fishRow(requestedId)).toEqual({ user_id: 1, username: "Иван", inventory_state: "available" });
+  });
+
+  test("decline leaves both inventories and balances unchanged", async () => {
+    await seedTraders();
+    const repo = createRepo(sql!);
+    await sql!`UPDATE fishers SET user_balance = 50 WHERE user_id = 1 AND chat_id = -100`;
+    await createAvailableCatch(2, -100, 2, 200, "Щука");
+    const requestedId = (await repo.getInventoryPage(2, -100, 1, 5)).fishes[0]!.id;
+    const created = await repo.createTrade({
+      chatId: -100,
+      initiatorUserId: 1,
+      initiatorFirstName: "Иван",
+      targetUserId: 2,
+      targetFirstName: "Аня",
+      offer: { kind: "money", amount: 7.31 },
+      requestedFishId: requestedId,
+    });
+
+    expect(await repo.declineTrade(tradeOf(created).id, 2, -100)).toEqual({ status: "declined" });
+
+    expect((await repo.getFisher(1, -100))!.balance).toBe(50);
+    expect((await repo.getFisher(2, -100))!.balance).toBe(0);
+    expect(await fishRow(requestedId)).toEqual({ user_id: 2, username: "Test", inventory_state: "available" });
+    // A replayed decline or a foreign press mutates nothing further.
+    expect(await repo.declineTrade(tradeOf(created).id, 2, -100)).toEqual({ status: "unavailable" });
+    expect(await repo.declineTrade(tradeOf(created).id, 1, -100)).toEqual({ status: "not_target" });
+  });
+
+  test("an offered fish made unavailable closes the trade without partial updates", async () => {
+    await seedTraders();
+    const repo = createRepo(sql!);
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    await createAvailableCatch(2, -100, 2, 200, "Щука");
+    const offeredId = (await repo.getInventoryPage(1, -100, 1, 5)).fishes[0]!.id;
+    const requestedId = (await repo.getInventoryPage(2, -100, 1, 5)).fishes[0]!.id;
+    const created = await repo.createTrade({
+      chatId: -100,
+      initiatorUserId: 1,
+      initiatorFirstName: "Иван",
+      targetUserId: 2,
+      targetFirstName: "Аня",
+      offer: { kind: "fish", offeredFishId: offeredId },
+      requestedFishId: requestedId,
+    });
+    await sql!`UPDATE caught_fishes SET inventory_state = 'sold' WHERE id = ${offeredId}`;
+
+    expect(await repo.acceptTrade(tradeOf(created).id, 2, -100)).toEqual({ status: "unavailable" });
+
+    expect(await fishRow(offeredId)).toEqual({ user_id: 1, username: "Test", inventory_state: "sold" });
+    expect(await fishRow(requestedId)).toEqual({ user_id: 2, username: "Test", inventory_state: "available" });
+    expect((await repo.getTrade(tradeOf(created).id))!.status).toBe("unavailable");
+  });
+
+  test("a drained buyer balance closes the money trade untouched", async () => {
+    await seedTraders();
+    const repo = createRepo(sql!);
+    await sql!`UPDATE fishers SET user_balance = 1 WHERE user_id = 1 AND chat_id = -100`;
+    await createAvailableCatch(2, -100, 2, 200, "Щука");
+    const requestedId = (await repo.getInventoryPage(2, -100, 1, 5)).fishes[0]!.id;
+    const created = await repo.createTrade({
+      chatId: -100,
+      initiatorUserId: 1,
+      initiatorFirstName: "Иван",
+      targetUserId: 2,
+      targetFirstName: "Аня",
+      offer: { kind: "money", amount: 7.31 },
+      requestedFishId: requestedId,
+    });
+    expect(created.status).toBe("created");
+
+    expect(await repo.acceptTrade(tradeOf(created).id, 2, -100)).toEqual({ status: "unavailable" });
+
+    expect((await repo.getFisher(1, -100))!.balance).toBe(1);
+    expect((await repo.getFisher(2, -100))!.balance).toBe(0);
+    expect(await fishRow(requestedId)).toEqual({ user_id: 2, username: "Test", inventory_state: "available" });
+  });
+
+  test("simultaneous accepts move resources exactly once", async () => {
+    await seedTraders();
+    const repo = createRepo(sql!);
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    await createAvailableCatch(2, -100, 2, 200, "Щука");
+    const offeredId = (await repo.getInventoryPage(1, -100, 1, 5)).fishes[0]!.id;
+    const requestedId = (await repo.getInventoryPage(2, -100, 1, 5)).fishes[0]!.id;
+    const created = await repo.createTrade({
+      chatId: -100,
+      initiatorUserId: 1,
+      initiatorFirstName: "Иван",
+      targetUserId: 2,
+      targetFirstName: "Аня",
+      offer: { kind: "fish", offeredFishId: offeredId },
+      requestedFishId: requestedId,
+    });
+    expect(created.status).toBe("created");
+
+    const results = await Promise.all([
+      repo.acceptTrade(tradeOf(created).id, 2, -100),
+      repo.acceptTrade(tradeOf(created).id, 2, -100),
+    ]);
+
+    expect(results.filter((result) => result.status === "accepted")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "unavailable")).toHaveLength(1);
+    expect(await fishRow(offeredId)).toEqual({ user_id: 2, username: "Аня", inventory_state: "available" });
+    expect(await fishRow(requestedId)).toEqual({ user_id: 1, username: "Иван", inventory_state: "available" });
   });
 });

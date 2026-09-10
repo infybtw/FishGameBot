@@ -243,6 +243,18 @@ function createFakeRepo(): FakeRepo {
     async markFishingNetReadyNotified() {
       return unexpected("markFishingNetReadyNotified");
     },
+    async createTrade() {
+      return unexpected("createTrade");
+    },
+    async getTrade() {
+      return unexpected("getTrade");
+    },
+    async declineTrade() {
+      return unexpected("declineTrade");
+    },
+    async acceptTrade() {
+      return unexpected("acceptTrade");
+    },
   };
 }
 

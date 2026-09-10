@@ -9,6 +9,7 @@ import { registerGroupCommands } from "./features/fishing/commands.ts";
 import { registerInfoCommands } from "./features/info.ts";
 import { registerNetCommands } from "./features/nets/commands.ts";
 import { registerUpgradeCommands } from "./features/upgrades/commands.ts";
+import { registerTradeCommands } from "./features/trades/commands.ts";
 import { log } from "./logger.ts";
 
 export type BotContext = ConversationFlavor<Context>;
@@ -43,6 +44,7 @@ export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess)
   registerGroupCommands(bot, cfg, repo);
   registerUpgradeCommands(bot, cfg, repo);
   registerNetCommands(bot, repo);
+  registerTradeCommands(bot, repo);
   registerInfoCommands(bot);
   registerAdminCommands(bot, cfg, repo, catalogAccess);
   bot.catch((err) => log.error({ err: err.error }, "update handler failed"));

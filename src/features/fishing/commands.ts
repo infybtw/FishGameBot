@@ -3,7 +3,7 @@ import type { User } from "grammy/types";
 import type { BotContext } from "../../bot.ts";
 import type { Config } from "../../config.ts";
 import type { Repo } from "../../db/index.ts";
-import { isAdmin, isGroup } from "../../guards.ts";
+import { isAdmin, isGroup, replyTarget } from "../../guards.ts";
 import { log } from "../../logger.ts";
 import { getRod } from "../upgrades/rods.ts";
 import { CHANCE_UP_POINTS, getCatalog, hasRarityGroup } from "./catalog.ts";
@@ -43,12 +43,6 @@ function logIgnored(ctx: Context, reason: string): void {
     { command: ctx.message?.text?.split(/\s/)[0], userId: ctx.from?.id, chatId: ctx.chat?.id, reason },
     "Command ignored",
   );
-}
-
-/** Command-reply target: a non-bot Telegram user, or null when absent or ineligible. */
-function replyTarget(ctx: Context): { id: number; firstName: string } | null {
-  const from = ctx.message?.reply_to_message?.from;
-  return from === undefined || from.is_bot ? null : { id: from.id, firstName: from.first_name };
 }
 
 function isAdminInGroup(ctx: Context, cfg: Config): ctx is Context & { from: User } {
