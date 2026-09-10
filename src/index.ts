@@ -6,6 +6,7 @@ import { seedDefaultFish } from "./db/seed.ts";
 import { loadCatalog, setCatalog } from "./features/fishing/catalog.ts";
 import { startNetNotifier } from "./features/nets/notifier.ts";
 import { createBot, type CatalogAccess } from "./bot.ts";
+import { syncCommandMenu } from "./features/command-menu.ts";
 
 async function main(): Promise<void> {
   log.info({ version: BOT_VERSION_LABEL }, "Starting fishbot");
@@ -48,6 +49,13 @@ async function main(): Promise<void> {
   setCatalog(catalog);
   const templateCount = catalog.reduce((sum, group) => sum + (group?.length ?? 0), 0);
   log.info({ templates: templateCount }, "Fish catalog loaded");
+
+  try {
+    await syncCommandMenu(bot.api, cfg.adminUserId, await repo.listChatIds());
+  } catch (err) {
+    // Cosmetic failure; the bot keeps working without the "/" menu.
+    log.error({ err }, "Failed to publish command menu");
+  }
 
   const stopNetNotifier = startNetNotifier(repo, bot.api);
 

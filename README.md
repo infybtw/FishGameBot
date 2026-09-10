@@ -142,6 +142,8 @@ bun run start
 
 ## Commands
 
+On startup the bot publishes these descriptions to Telegram (`setMyCommands`), so the "/" menu shows the right commands per audience: public commands in groups, owner-only group commands scoped to `ADMIN_USER_ID`, and catalog maintenance commands in the owner's private chat.
+
 ### Player commands
 
 These commands are available in groups and supergroups:

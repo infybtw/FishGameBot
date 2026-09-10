@@ -137,6 +137,9 @@ function createFakeRepo(): FakeRepo {
       }
       return removed;
     },
+    async listChatIds() {
+      return [];
+    },
     async multiplyBalance(userId, chatId, multiplier) {
       calls.push("multiplyBalance");
       const fisher = fishers.get(key(userId, chatId));

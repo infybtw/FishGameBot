@@ -168,6 +168,7 @@ export type Repo = {
   upsertCatchTime(userId: number, chatId: number, unixSeconds: number): Promise<void>;
   deleteCatchTime(userId: number, chatId: number): Promise<void>;
   deleteCatchTimes(chatId: number): Promise<number>;
+  listChatIds(): Promise<number[]>;
   listCatchTimes(chatId: number): Promise<CooldownRow[]>;
   grantChanceUp(userId: number, chatId: number): Promise<void>;
   hasChanceUp(userId: number, chatId: number): Promise<boolean>;
@@ -252,6 +253,10 @@ export function createRepo(sql: SQL): Repo {
     async deleteCatchTimes(chatId: number): Promise<number> {
       const rows = (await sql`DELETE FROM catch_time WHERE chat_id = ${chatId} RETURNING user_id`) as unknown[];
       return rows.length;
+    },
+    async listChatIds(): Promise<number[]> {
+      const rows = (await sql`SELECT DISTINCT chat_id FROM fishers`) as Array<Record<string, unknown>>;
+      return rows.map((row) => asNumber(row.chat_id));
     },
     async listCatchTimes(chatId: number): Promise<CooldownRow[]> {
       const rows = (await sql`SELECT c.user_id, c.last_catch_time, f.user_first_name
