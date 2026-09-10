@@ -175,6 +175,16 @@ const SCHEMA_STATEMENTS = [
   )
 )`,
   `CREATE INDEX IF NOT EXISTS trades_chat_idx ON trades (chat_id, status, id)`,
+  `CREATE TABLE IF NOT EXISTS bot_messages (
+    chat_id BIGINT NOT NULL,
+    message_id INTEGER NOT NULL,
+    sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    PRIMARY KEY (chat_id, message_id)
+  )`,
+  `ALTER TABLE bot_messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
+  `CREATE INDEX IF NOT EXISTS bot_messages_active_cleanup_idx
+    ON bot_messages (chat_id, sent_at DESC, message_id DESC) WHERE deleted_at IS NULL`,
 ];
 
 export function createSql(databaseUrl: string): SQL {
@@ -290,6 +300,9 @@ export type Repo = {
   declineTrade(id: number, targetUserId: number, chatId: number): Promise<DeclineTradeResult>;
   acceptTrade(id: number, targetUserId: number, chatId: number): Promise<AcceptTradeResult>;
   markFishingNetReadyNotified(userId: number, chatId: number, notifiedAt: number): Promise<void>;
+  trackBotMessage(chatId: number, messageId: number): Promise<void>;
+  listRecentBotMessageIds(chatId: number, limit?: number): Promise<number[]>;
+  markBotMessageDeleted(chatId: number, messageId: number): Promise<void>;
 };
 
 export function createRepo(sql: SQL): Repo {
@@ -650,6 +663,24 @@ export function createRepo(sql: SQL): Repo {
     async markFishingNetReadyNotified(userId, chatId, notifiedAt): Promise<void> {
       await sql`UPDATE fishing_nets SET ready_notified_at = ${notifiedAt}
         WHERE user_id = ${userId} AND chat_id = ${chatId}`;
+    },
+    async trackBotMessage(chatId, messageId): Promise<void> {
+      await sql`INSERT INTO bot_messages (chat_id, message_id) VALUES (${chatId}, ${messageId})
+        ON CONFLICT DO NOTHING`;
+    },
+    async listRecentBotMessageIds(chatId, limit): Promise<number[]> {
+      const rows = (await (limit === undefined
+        ? sql`SELECT message_id FROM bot_messages
+          WHERE chat_id = ${chatId} AND deleted_at IS NULL AND sent_at > NOW() - INTERVAL '48 hours'
+          ORDER BY sent_at DESC, message_id DESC`
+        : sql`SELECT message_id FROM bot_messages
+          WHERE chat_id = ${chatId} AND deleted_at IS NULL AND sent_at > NOW() - INTERVAL '48 hours'
+          ORDER BY sent_at DESC, message_id DESC LIMIT ${limit}`)) as Array<Record<string, unknown>>;
+      return rows.map((row) => asNumber(row.message_id));
+    },
+    async markBotMessageDeleted(chatId, messageId): Promise<void> {
+      await sql`UPDATE bot_messages SET deleted_at = NOW()
+        WHERE chat_id = ${chatId} AND message_id = ${messageId} AND deleted_at IS NULL`;
     },
     async createTrade(insert): Promise<CreateTradeResult> {
       return sql.begin(async (tx) => {

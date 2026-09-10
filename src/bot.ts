@@ -16,6 +16,31 @@ export type BotContext = ConversationFlavor<Context>;
 export type FishConversation = Conversation<BotContext, Context>;
 export type CatalogAccess = { reload(): Promise<Catalog | null> };
 
+export function trackBotMessages(repo: Repo) {
+  return async <T>(
+    prev: (method: string, payload: unknown, signal?: AbortSignal) => Promise<T>,
+    method: string,
+    payload: unknown,
+    signal?: AbortSignal,
+  ): Promise<T> => {
+    const result = await prev(method, payload, signal);
+    if (method !== "sendMessage" && method !== "sendDocument") return result;
+
+    const chatId = (payload as { chat_id?: unknown }).chat_id;
+    // API transformers receive Telegram's raw { ok, result } envelope.
+    const messageId = ((result as { result?: { message_id?: unknown } }).result)?.message_id;
+    if (typeof chatId !== "number" || typeof messageId !== "number") return result;
+
+    try {
+      await repo.trackBotMessage(chatId, messageId);
+    } catch (err) {
+      // Tracking must never turn a successfully delivered bot response into an error.
+      log.error({ err, chatId, messageId }, "Failed to track bot message");
+    }
+    return result;
+  };
+}
+
 export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess): Bot<BotContext> {
   const bot = new Bot<BotContext>(cfg.botToken);
   // HTML is the default parse mode for outgoing messages; an explicit
@@ -25,6 +50,7 @@ export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess)
     prev(method, { parse_mode: "HTML", ...payload }, signal),
   );
   bot.api.config.use(autoRetry());
+  bot.api.config.use(trackBotMessages(repo) as never);
 
   // Every incoming update gets a line; commands are worth info, the rest debug.
   bot.use((ctx, next) => {
