@@ -12,6 +12,7 @@ import {
 } from "./generator.ts";
 import { formatRemaining } from "./cooldown.ts";
 import { CHANCE_UP_RARITY_WEIGHTS, RARITY_WEIGHTS, type Catalog } from "./catalog.ts";
+import { NET_RARITY_WEIGHTS } from "../nets/net.ts";
 
 function mockRandom(values: readonly number[]): void {
   let index = 0;
@@ -275,5 +276,35 @@ describe("fakeFishCatch", () => {
   test("throws when neither point 5 nor point 6 has templates", () => {
     const catalog: Catalog = [[{ name: "Окунь", rarity: "Обычный", point: 1 }]];
     expect(() => fakeFishCatch(catalog, "Ира")).toThrow("No fish templates for rarity point 5 or 6");
+  });
+});
+
+describe("net rarity weights", () => {
+  test("sum to 100 and favor common fish below every ordinary high-tier chance", () => {
+    expect(NET_RARITY_WEIGHTS).toEqual({ 1: 85, 2: 12, 3: 2, 4: 0.7, 5: 0.25, 6: 0.05 });
+    expect(Object.values(NET_RARITY_WEIGHTS).reduce((sum, weight) => sum + weight, 0)).toBe(100);
+    expect(NET_RARITY_WEIGHTS[1]).toBeGreaterThan(RARITY_WEIGHTS[1]!);
+    for (const point of [2, 3, 4, 5, 6]) {
+      expect(NET_RARITY_WEIGHTS[point]).toBeLessThan(RARITY_WEIGHTS[point]!);
+    }
+  });
+
+  test("rollPoint follows net-weight boundaries while ignoring empty catalog groups", () => {
+    // Point 4 has no templates, so its 0.7 weight is excluded and the
+    // remaining weights re-normalize: cumulative thresholds 85, 97, 99,
+    // 99.25, 99.3 over a total of 99.3.
+    const catalog: Catalog = [
+      [{ name: "Окунь", rarity: "Обычный", point: 1 }],
+      [{ name: "Лещ", rarity: "Редкий", point: 2 }],
+      [{ name: "Карп", rarity: "Эпический", point: 3 }],
+      [],
+      [{ name: "Акула", rarity: "Мифическая", point: 5 }],
+      [{ name: "Кит", rarity: "Радужная", point: 6 }],
+    ];
+    mockRandom([0, 0.855, 0.856, 0.976, 0.977, 0.997, 0.9999, 0.999_999]);
+
+    const rolled: number[] = [];
+    for (let i = 0; i < 8; i++) rolled.push(rollPoint(catalog, 0, Math.random, NET_RARITY_WEIGHTS));
+    expect(rolled).toEqual([1, 1, 2, 2, 3, 5, 6, 6]);
   });
 });

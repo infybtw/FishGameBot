@@ -4,6 +4,7 @@ import { log } from "./logger.ts";
 import { createRepo, createSql, migrateSchema } from "./db/index.ts";
 import { seedDefaultFish } from "./db/seed.ts";
 import { loadCatalog, setCatalog } from "./features/fishing/catalog.ts";
+import { startNetNotifier } from "./features/nets/notifier.ts";
 import { createBot, type CatalogAccess } from "./bot.ts";
 
 async function main(): Promise<void> {
@@ -48,7 +49,10 @@ async function main(): Promise<void> {
   const templateCount = catalog.reduce((sum, group) => sum + (group?.length ?? 0), 0);
   log.info({ templates: templateCount }, "Fish catalog loaded");
 
+  const stopNetNotifier = startNetNotifier(repo, bot.api);
+
   await bot.start({ onStart: () => log.info("Bot started") });
+  stopNetNotifier();
   log.info("Bot stopped");
 
   // bot.start resolves after grammY's built-in SIGINT/SIGTERM handling stops the bot.

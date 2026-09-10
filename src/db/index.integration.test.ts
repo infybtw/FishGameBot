@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { createRepo, createSql, migrateSchema, type RodPurchaseSpec } from "./index.ts";
+import { createRepo, createSql, migrateSchema, type CatchInsert, type RodPurchaseSpec } from "./index.ts";
+import { NET_DURATION_SECONDS } from "../features/nets/net.ts";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (databaseUrl !== undefined && !new URL(databaseUrl).pathname.endsWith("_test")) {
@@ -42,13 +43,13 @@ async function createAvailableCatch(
     VALUES ('Test', ${userId}, ${name}, 1000, 30, 'Test', ${point}, ${price}, ${chatId}, 'available')`;
 }
 
+afterAll(async () => {
+  if (sql !== null) await sql.end();
+});
+
 describe.skipIf(databaseUrl === undefined)("Repo inventory economy integration", () => {
   beforeEach(async () => {
     await resetSchema();
-  });
-
-  afterAll(async () => {
-    await sql!.end();
   });
 
   test("migrates historical catches to sold without changing balances", async () => {
@@ -201,5 +202,84 @@ describe.skipIf(databaseUrl === undefined)("Repo inventory economy integration",
     expect(await repo.multiplyBalance(1, -100, 1.2)).toBe(300);
     expect((await repo.getFisher(1, -100))!.balance).toBe(300);
     expect((await repo.getFisher(1, -200))!.balance).toBe(250);
+  });
+});
+
+describe.skipIf(databaseUrl === undefined)("Repo fishing nets integration", () => {
+  beforeEach(async () => {
+    await resetSchema();
+  });
+
+  function netCatch(userId: number, chatId: number, fishName: string): CatchInsert {
+    return { username: "Игрок", userId, chatId, fishName, rarity: "Обычный", point: 1, sizeCm: 12, weightG: 138, price: 250 };
+  }
+
+  test("duplicate casts keep one row and return the original cast time", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+
+    expect(await repo.castFishingNet(9, -100, "Игрок", 1_000)).toBe(1_000);
+    expect(await repo.castFishingNet(9, -100, "Игрок", 2_000)).toBe(1_000);
+
+    expect(await repo.getFishingNet(9, -100)).toEqual({
+      userId: 9,
+      chatId: -100,
+      firstName: "Игрок",
+      castAt: 1_000,
+      readyNotifiedAt: null,
+    });
+    expect(await repo.getFishingNet(8, -100)).toBeNull();
+    expect(await repo.getFishingNet(9, -200)).toBeNull();
+  });
+
+  test("collecting before the deadline leaves the net row and inventory untouched", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.castFishingNet(9, -100, "Игрок", 5_000);
+
+    const result = await repo.collectFishingNet(9, -100, 5_000 + NET_DURATION_SECONDS - 1, [netCatch(9, -100, "Окунь")]);
+
+    expect(result).toEqual({ status: "not_ready", castAt: 5_000 });
+    expect(await repo.getFishingNet(9, -100)).not.toBeNull();
+    expect(await repo.countUserFishes(9, -100)).toBe(0);
+  });
+
+  test("boundary collection atomically stores every catch and removes the net exactly once", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.castFishingNet(9, -100, "Игрок", 5_000);
+    const catches = ["Окунь", "Лещ", "Карп"].map((name) => netCatch(9, -100, name));
+
+    expect(await repo.collectFishingNet(9, -100, 5_000 + NET_DURATION_SECONDS, catches)).toEqual({
+      status: "collected",
+      castAt: 5_000,
+    });
+    expect(await repo.getFishingNet(9, -100)).toBeNull();
+    expect(await repo.countUserFishes(9, -100)).toBe(3);
+
+    const replay = await repo.collectFishingNet(9, -100, 5_000 + NET_DURATION_SECONDS + 10, catches);
+    expect(replay).toEqual({ status: "not_cast" });
+    expect(await repo.countUserFishes(9, -100)).toBe(3);
+  });
+
+  test("readiness listing and notification marking cover exactly the due unnotified nets", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    const now = 100_000;
+    await repo.castFishingNet(1, -100, "Ранний", now - 10);
+    await repo.castFishingNet(2, -100, "Готова", now - NET_DURATION_SECONDS - 10);
+    await repo.castFishingNet(3, -200, "Другая группа", now - NET_DURATION_SECONDS - 5);
+    await repo.castFishingNet(4, -100, "Уведомлён", now - NET_DURATION_SECONDS - 20);
+    await repo.markFishingNetReadyNotified(4, -100, now - 50);
+
+    const rows = await repo.listReadyUnnotifiedFishingNets(now);
+    expect(rows.map((row) => [row.userId, row.chatId])).toEqual([
+      [2, -100],
+      [3, -200],
+    ]);
+
+    await repo.markFishingNetReadyNotified(2, -100, now);
+    const rest = await repo.listReadyUnnotifiedFishingNets(now);
+    expect(rest.map((row) => row.userId)).toEqual([3]);
   });
 });

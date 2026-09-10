@@ -49,6 +49,18 @@ export type PurchaseResult =
   | { status: "insufficient_balance"; required: number; available: number }
   | { status: "insufficient_fish"; point: number; required: number; available: number };
 export type EquipResult = { status: "equipped" } | { status: "not_owned" };
+export type FishingNetRow = {
+  userId: number;
+  chatId: number;
+  firstName: string;
+  castAt: number;
+  readyNotifiedAt: number | null;
+};
+
+export type FishingNetCollectResult =
+  | { status: "collected"; castAt: number }
+  | { status: "not_cast" }
+  | { status: "not_ready"; castAt: number };
 
 const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS fishes (
@@ -105,6 +117,14 @@ const SCHEMA_STATEMENTS = [
   chat_id BIGINT NOT NULL,
   PRIMARY KEY (user_id, chat_id)
 )`,
+  `CREATE TABLE IF NOT EXISTS fishing_nets (
+  user_id BIGINT NOT NULL,
+  chat_id BIGINT NOT NULL,
+  user_first_name TEXT NOT NULL,
+  cast_at DOUBLE PRECISION NOT NULL,
+  ready_notified_at DOUBLE PRECISION,
+  PRIMARY KEY (user_id, chat_id)
+)`,
 ];
 
 export function createSql(databaseUrl: string): SQL {
@@ -128,6 +148,16 @@ function asNumber(value: unknown): number {
 function firstNumber(rows: Array<Record<string, unknown>>, column: string): number {
   const row = rows[0];
   return row === undefined ? 0 : asNumber(row[column]);
+}
+
+function toFishingNetRow(row: Record<string, unknown>): FishingNetRow {
+  return {
+    userId: asNumber(row.user_id),
+    chatId: asNumber(row.chat_id),
+    firstName: String(row.user_first_name),
+    castAt: asNumber(row.cast_at),
+    readyNotifiedAt: row.ready_notified_at === null ? null : asNumber(row.ready_notified_at),
+  };
 }
 
 export type Repo = {
@@ -162,6 +192,11 @@ export type Repo = {
   insertTemplate(name: string, rarity: string, point: number): Promise<number>;
   deleteTemplate(id: number): Promise<void>;
   loadAllTemplates(): Promise<FishTemplateInsert[]>;
+  getFishingNet(userId: number, chatId: number): Promise<FishingNetRow | null>;
+  castFishingNet(userId: number, chatId: number, firstName: string, castAt: number): Promise<number>;
+  collectFishingNet(userId: number, chatId: number, now: number, catches: CatchInsert[]): Promise<FishingNetCollectResult>;
+  listReadyUnnotifiedFishingNets(now: number): Promise<FishingNetRow[]>;
+  markFishingNetReadyNotified(userId: number, chatId: number, notifiedAt: number): Promise<void>;
 };
 
 export function createRepo(sql: SQL): Repo {
@@ -471,6 +506,53 @@ export function createRepo(sql: SQL): Repo {
         Record<string, unknown>
       >;
       return rows.map((row) => ({ name: String(row.fish_name), rarity: String(row.fish_rarity), point: asNumber(row.fish_rarity_point) }));
+    },
+    async getFishingNet(userId, chatId): Promise<FishingNetRow | null> {
+      const rows = (await sql`SELECT user_id, chat_id, user_first_name, cast_at, ready_notified_at FROM fishing_nets
+        WHERE user_id = ${userId} AND chat_id = ${chatId}`) as Array<Record<string, unknown>>;
+      const row = rows[0];
+      return row === undefined ? null : toFishingNetRow(row);
+    },
+    async castFishingNet(userId, chatId, firstName, castAt): Promise<number> {
+      const inserted = await sql`INSERT INTO fishing_nets (user_id, chat_id, user_first_name, cast_at)
+        VALUES (${userId}, ${chatId}, ${firstName}, ${castAt})
+        ON CONFLICT (user_id, chat_id) DO NOTHING`;
+      if (inserted.count === 1) return castAt;
+      // Stale duplicate action: keep the original cast time.
+      const rows = (await sql`SELECT user_id, user_first_name, cast_at, ready_notified_at FROM fishing_nets
+        WHERE user_id = ${userId} AND chat_id = ${chatId}`) as Array<Record<string, unknown>>;
+      return firstNumber(rows, "cast_at");
+    },
+    async collectFishingNet(userId, chatId, now, catches): Promise<FishingNetCollectResult> {
+      return sql.begin(async (tx) => {
+        const rows = (await tx`SELECT cast_at FROM fishing_nets
+          WHERE user_id = ${userId} AND chat_id = ${chatId} FOR UPDATE`) as Array<Record<string, unknown>>;
+        const row = rows[0];
+        if (row === undefined) return { status: "not_cast" };
+        const castAt = asNumber(row.cast_at);
+        // NET_DURATION_SECONDS (43_200) is defined in src/features/nets/net.ts;
+        // the deadline check stays inside this transaction so a concurrent
+        // collection either sees the row locked or finds it already deleted.
+        if (castAt + 43_200 > now) return { status: "not_ready", castAt };
+        for (const catch_ of catches) {
+          await tx`INSERT INTO caught_fishes
+            (username, user_id, fish_name, fish_weight, fish_size, fish_rarity, fish_rarity_point, fish_price, chat_id, inventory_state)
+            VALUES (${catch_.username}, ${catch_.userId}, ${catch_.fishName}, ${catch_.weightG}, ${catch_.sizeCm},
+            ${catch_.rarity}, ${catch_.point}, ${catch_.price}, ${catch_.chatId}, 'available')`;
+        }
+        await tx`DELETE FROM fishing_nets WHERE user_id = ${userId} AND chat_id = ${chatId}`;
+        return { status: "collected", castAt };
+      });
+    },
+    async listReadyUnnotifiedFishingNets(now): Promise<FishingNetRow[]> {
+      const rows = (await sql`SELECT user_id, chat_id, user_first_name, cast_at, ready_notified_at FROM fishing_nets
+        WHERE cast_at + 43_200 <= ${now} AND ready_notified_at IS NULL
+        ORDER BY cast_at`) as Array<Record<string, unknown>>;
+      return rows.map(toFishingNetRow);
+    },
+    async markFishingNetReadyNotified(userId, chatId, notifiedAt): Promise<void> {
+      await sql`UPDATE fishing_nets SET ready_notified_at = ${notifiedAt}
+        WHERE user_id = ${userId} AND chat_id = ${chatId}`;
     },
   };
 }

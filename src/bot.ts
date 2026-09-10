@@ -7,6 +7,7 @@ import type { Catalog } from "./features/fishing/catalog.ts";
 import { registerAdminCommands } from "./features/admin/commands.ts";
 import { registerGroupCommands } from "./features/fishing/commands.ts";
 import { registerInfoCommands } from "./features/info.ts";
+import { registerNetCommands } from "./features/nets/commands.ts";
 import { registerUpgradeCommands } from "./features/upgrades/commands.ts";
 import { log } from "./logger.ts";
 
@@ -41,6 +42,7 @@ export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess)
   bot.use(conversations());
   registerGroupCommands(bot, cfg, repo);
   registerUpgradeCommands(bot, cfg, repo);
+  registerNetCommands(bot, repo);
   registerInfoCommands(bot);
   registerAdminCommands(bot, cfg, repo, catalogAccess);
   bot.catch((err) => log.error({ err: err.error }, "update handler failed"));
