@@ -25,6 +25,7 @@ const OWNER_GROUP_COMMANDS: BotCommand[] = [
   { command: "cr", description: "Отменить последний улов (реплаем)" },
   { command: "chanceup", description: "Выдать буст шанса (реплаем)" },
   { command: "fakefish", description: "Тестовая карта улова" },
+  { command: "cclear", description: "Удалить сообщения бота" },
 ];
 
 /** Owner-only catalog maintenance commands, usable anywhere. */
@@ -36,6 +37,7 @@ const OWNER_PRIVATE_COMMANDS: BotCommand[] = [
   { command: "get_fish_list", description: "Показать каталог рыб" },
   { command: "reload_fish_list", description: "Перезагрузить каталог" },
   { command: "cancel", description: "Отменить активный диалог" },
+  { command: "cclear", description: "Удалить сообщения бота" },
   INFO_COMMAND,
 ];
 

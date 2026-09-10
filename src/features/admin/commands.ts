@@ -21,6 +21,8 @@ const IMPORT_INVITE =
   'Отправьте JSON-файл со списком рыб.\nФормат: массив объектов {"name", "rarity", "point"}.\nТекущий список рыб будет заменён.';
 const IMPORT_FAIL = "Во время импорта рыбы произошла критическая ошибка";
 const EXPORT_FAIL = "Произошла ошибка";
+const CCLEAR_USAGE = "Использование: /cclear или /cclear <количество>";
+const CCLEAR_OK = (deleted: number) => `Удалено сообщений бота: ${deleted}`;
 
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -54,6 +56,14 @@ function logAdminRejected(ctx: Context, command: string): void {
     { command, userId: ctx.from?.id, chatId: ctx.chat?.id },
     "Admin command rejected: caller is not the admin",
   );
+}
+
+function parseClearLimit(raw: string): number | null | undefined {
+  const value = raw.trim();
+  if (value === "") return undefined;
+  if (!/^\d+$/.test(value)) return null;
+  const limit = Number(value);
+  return Number.isSafeInteger(limit) && limit > 0 ? limit : null;
 }
 
 function addFishConversation(cfg: Config, repo: Repo) {
@@ -217,6 +227,34 @@ export function registerAdminCommands(
     await ctx.conversation.exitAll();
     log.info("Conversations reset by admin");
     await ctx.reply(CANCEL_OK);
+  });
+
+  bot.command("cclear", async (ctx) => {
+    if (!isAdmin(ctx, cfg.adminUserId)) {
+      logAdminRejected(ctx, "cclear");
+      return;
+    }
+    if (ctx.chat === undefined) return;
+
+    const limit = parseClearLimit(ctx.match);
+    if (limit === null) {
+      await ctx.reply(CCLEAR_USAGE);
+      return;
+    }
+
+    const messageIds = await repo.listRecentBotMessageIds(ctx.chat.id, limit);
+    let deleted = 0;
+    for (const messageId of messageIds) {
+      try {
+        await ctx.api.deleteMessage(ctx.chat.id, messageId);
+        await repo.markBotMessageDeleted(ctx.chat.id, messageId);
+        deleted += 1;
+      } catch (err) {
+        log.warn({ err, chatId: ctx.chat.id, messageId }, "Failed to delete bot message");
+      }
+    }
+    log.info({ chatId: ctx.chat.id, requested: limit ?? "all", deleted }, "Bot messages cleared by admin");
+    await ctx.reply(CCLEAR_OK(deleted));
   });
 
   bot.command("get_fish_list", async (ctx) => {
