@@ -225,6 +225,21 @@ function createFakeRepo(): FakeRepo {
     async loadAllTemplates() {
       return unexpected("loadAllTemplates");
     },
+    async getFishingNet() {
+      return unexpected("getFishingNet");
+    },
+    async castFishingNet() {
+      return unexpected("castFishingNet");
+    },
+    async collectFishingNet() {
+      return unexpected("collectFishingNet");
+    },
+    async listReadyUnnotifiedFishingNets() {
+      return unexpected("listReadyUnnotifiedFishingNets");
+    },
+    async markFishingNetReadyNotified() {
+      return unexpected("markFishingNetReadyNotified");
+    },
   };
 }
 

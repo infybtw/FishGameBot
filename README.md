@@ -149,6 +149,7 @@ These commands are available in groups and supergroups:
 | Command | Description |
 | --- | --- |
 | `/fish` | Attempt to catch a fish. |
+| `/net` | Open your fishing net menu. Every player has one implicit basic net per group: cast it, watch the 12-hour countdown, and collect 1–6 fish. Nets are independent in each group. |
 | `/fishtop` | Show the current chat's fishing leaderboard. |
 | `/stats` | Show your statistics for the current chat. |
 | `/info` | Show bot version, command help, and repository information. |
