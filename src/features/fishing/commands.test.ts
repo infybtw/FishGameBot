@@ -344,6 +344,9 @@ function createFakeRepo(): FakeRepo {
     async acceptTrade() {
       return unexpected("acceptTrade");
     },
+    async upgradeFish() {
+      return unexpected("upgradeFish");
+    },
   };
 }
 

@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { createRepo, createSql, migrateSchema, type CatchInsert, type CreateTradeResult, type RodPurchaseSpec, type TradeRow } from "./index.ts";
+import { createRepo, createSql, migrateSchema, type CatchInsert, type CreateTradeResult, type RodPurchaseSpec, type TradeRow, type UpgradeFishCatalog, type UpgradeFishInput } from "./index.ts";
 import { NET_DURATION_SECONDS } from "../features/nets/net.ts";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -720,5 +720,143 @@ describe.skipIf(databaseUrl === undefined)("Repo trades integration", () => {
     expect(results.filter((result) => result.status === "unavailable")).toHaveLength(1);
     expect(await fishRow(offeredId)).toEqual({ user_id: 2, username: "Аня", inventory_state: "available" });
     expect(await fishRow(requestedId)).toEqual({ user_id: 1, username: "Иван", inventory_state: "available" });
+  });
+});
+
+describe.skipIf(databaseUrl === undefined)("Repo fish upgrade integration", () => {
+  beforeEach(async () => {
+    await resetSchema();
+  });
+
+  const UPGRADE_CATALOG = [
+    [{ name: "Small", rarity: "Common", point: 1 }],
+    [{ name: "Mid", rarity: "Rare", point: 2 }],
+    [{ name: "Big", rarity: "Epic", point: 3 }],
+  ];
+
+  function upgradeInput(overrides: Partial<UpgradeFishInput>): UpgradeFishInput {
+    return {
+      userId: 1,
+      chatId: -100,
+      fishId: 0,
+      firstName: "Игрок",
+      catalog: UPGRADE_CATALOG,
+      chanceForPoint: (point) => (point < 3 ? 50 : null),
+      roll: () => true,
+      buildCatch: (targetPoint) => ({
+        name: `Upgraded ${targetPoint}`,
+        rarity: "Upgraded",
+        point: targetPoint,
+        sizeCm: 40,
+        weightG: 1500,
+        price: 500,
+      }),
+      ...overrides,
+    };
+  }
+
+  async function catchStates(): Promise<Array<{ id: number; fish_name: string; fish_rarity_point: number; inventory_state: string }>> {
+    return (await sql!`SELECT id, fish_name, fish_rarity_point, inventory_state FROM caught_fishes ORDER BY id`) as Array<{
+      id: number;
+      fish_name: string;
+      fish_rarity_point: number;
+      inventory_state: string;
+    }>;
+  }
+
+  test("success spends the source and inserts exactly one target-point catch", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    const fishId = (await repo.getInventoryPage(1, -100, 1, 5)).fishes[0]!.id;
+
+    const result = await repo.upgradeFish(upgradeInput({ fishId }));
+
+    expect(result).toMatchObject({ status: "upgraded", chance: 50, source: { id: fishId, name: "Окунь", point: 1 } });
+    if (result.status !== "upgraded") return;
+    expect(result.created).toEqual({
+      name: "Upgraded 2",
+      rarity: "Upgraded",
+      point: 2,
+      sizeCm: 40,
+      weightG: 1500,
+      price: 500,
+    });
+    const page = await repo.getInventoryPage(1, -100, 1, 5);
+    expect(page.totalCount).toBe(1);
+    expect(page.fishes[0]).toMatchObject({ name: "Upgraded 2", point: 2, price: 500 });
+    expect(await catchStates()).toEqual([
+      { id: fishId, fish_name: "Окунь", fish_rarity_point: 1, inventory_state: "spent" },
+      { id: page.fishes[0]!.id, fish_name: "Upgraded 2", fish_rarity_point: 2, inventory_state: "available" },
+    ]);
+  });
+
+  test("failure consumes the source and creates nothing", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    const fishId = (await repo.getInventoryPage(1, -100, 1, 5)).fishes[0]!.id;
+
+    const result = await repo.upgradeFish(upgradeInput({ fishId, roll: () => false }));
+
+    expect(result).toEqual({ status: "failed", chance: 50, source: { id: fishId, name: "Окунь", rarity: "Test", point: 1 } });
+    expect((await repo.getInventoryPage(1, -100, 1, 5)).totalCount).toBe(0);
+    expect(await catchStates()).toEqual([{ id: fishId, fish_name: "Окунь", fish_rarity_point: 1, inventory_state: "spent" }]);
+  });
+
+  test("foreign, wrong-chat, sold, and unknown fish are never upgraded", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(1, -100, "Player");
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    const fishId = (await repo.getInventoryPage(1, -100, 1, 5)).fishes[0]!.id;
+
+    expect(await repo.upgradeFish(upgradeInput({ fishId, userId: 2 }))).toEqual({ status: "not_available" });
+    expect(await repo.upgradeFish(upgradeInput({ fishId, chatId: -200 }))).toEqual({ status: "not_available" });
+    expect(await repo.upgradeFish(upgradeInput({ fishId: fishId + 999 }))).toEqual({ status: "not_available" });
+
+    await repo.sellFish(1, -100, fishId);
+    expect(await repo.upgradeFish(upgradeInput({ fishId }))).toEqual({ status: "not_available" });
+    expect((await repo.getFisher(1, -100))!.balance).toBe(100);
+    expect(await catchStates()).toEqual([{ id: fishId, fish_name: "Окунь", fish_rarity_point: 1, inventory_state: "sold" }]);
+  });
+
+  test("max rarity and a missing target group never consume the source", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await createAvailableCatch(1, -100, 3, 100, "Большая");
+    await createAvailableCatch(2, -100, 1, 100, "Чужая");
+    const maxFishId = (await repo.getInventoryPage(1, -100, 1, 5)).fishes[0]!.id;
+    const noGroupCatalog: UpgradeFishCatalog = [[{ name: "Small", rarity: "Common", point: 1 }]];
+    const otherFishId = (await repo.getInventoryPage(2, -100, 1, 5)).fishes[0]!.id;
+
+    expect(await repo.upgradeFish(upgradeInput({ fishId: maxFishId }))).toMatchObject({ status: "max_rarity" });
+    expect(
+      await repo.upgradeFish(upgradeInput({ fishId: otherFishId, userId: 2, catalog: noGroupCatalog })),
+    ).toMatchObject({ status: "target_rarity_missing" });
+
+    expect(await repo.getInventoryPage(1, -100, 1, 5).then((page) => page.totalCount)).toBe(1);
+    expect(await repo.getInventoryPage(2, -100, 1, 5).then((page) => page.totalCount)).toBe(1);
+    expect(await catchStates()).toEqual([
+      { id: maxFishId, fish_name: "Большая", fish_rarity_point: 3, inventory_state: "available" },
+      { id: otherFishId, fish_name: "Чужая", fish_rarity_point: 1, inventory_state: "available" },
+    ]);
+  });
+
+  test("simultaneous attempts mutate the inventory exactly once", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    const fishId = (await repo.getInventoryPage(1, -100, 1, 5)).fishes[0]!.id;
+
+    const results = await Promise.all([repo.upgradeFish(upgradeInput({ fishId })), repo.upgradeFish(upgradeInput({ fishId }))]);
+
+    expect(results.filter((result) => result.status === "upgraded")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "not_available")).toHaveLength(1);
+    expect(await repo.getInventoryPage(1, -100, 1, 5).then((page) => page.totalCount)).toBe(1);
+    expect(await catchStates()).toEqual([
+      { id: fishId, fish_name: "Окунь", fish_rarity_point: 1, inventory_state: "spent" },
+      { id: fishId + 1, fish_name: "Upgraded 2", fish_rarity_point: 2, inventory_state: "available" },
+    ]);
   });
 });
