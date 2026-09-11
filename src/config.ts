@@ -4,6 +4,7 @@ export type Config = {
   catchSuccessChance: number;
   catchDelaySeconds: number;
   curseDropChance: number;
+  fishModifierDropChance: number;
   databaseUrl: string;
 };
 
@@ -12,6 +13,9 @@ function readInt(raw: string | undefined): number | null {
   const value = Number(raw);
   return Number.isInteger(value) ? value : null;
 }
+
+/** Chance in percent that a successful catch carries a fish modifier. */
+export const FISH_MODIFIER_DROP_CHANCE_DEFAULT = 12;
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const problems: string[] = [];
@@ -41,6 +45,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     problems.push("CURSE_DROP_CHANCE must be an integer between 0 and 100");
   }
 
+  // Optional with a default; an explicitly invalid value still fails startup.
+  const rawFishModifierDropChance = env.FISH_MODIFIER_DROP_CHANCE;
+  const fishModifierDropChance =
+    rawFishModifierDropChance === undefined || rawFishModifierDropChance.trim() === ""
+      ? FISH_MODIFIER_DROP_CHANCE_DEFAULT
+      : (readInt(rawFishModifierDropChance) ?? -1);
+  if (fishModifierDropChance < 0 || fishModifierDropChance > 100) {
+    problems.push("FISH_MODIFIER_DROP_CHANCE must be an integer between 0 and 100");
+  }
+
   const databaseUrl = env.DATABASE_URL?.trim();
   if (databaseUrl !== undefined && databaseUrl !== "" && !/^postgres(ql)?:\/\//.test(databaseUrl)) {
     problems.push("DATABASE_URL must be a postgres:// or postgresql:// connection string");
@@ -56,6 +70,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     catchSuccessChance: catchSuccessChance!,
     catchDelaySeconds: catchDelaySeconds!,
     curseDropChance: curseDropChance!,
+    fishModifierDropChance,
     databaseUrl: databaseUrl || "postgres://localhost:5432/fishbot",
   };
 }

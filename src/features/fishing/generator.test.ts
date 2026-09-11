@@ -3,15 +3,18 @@ import {
   boostedCatch,
   didCatch,
   fakeFishCatch,
+  generateCatch,
   generatePrice,
   generateSize,
   generateWeight,
   pickTemplate,
+  rollModifier,
   rollPoint,
   tryCatch,
 } from "./generator.ts";
 import { formatRemaining } from "./cooldown.ts";
 import { CHANCE_UP_RARITY_WEIGHTS, RARITY_WEIGHTS, type Catalog } from "./catalog.ts";
+import { FISH_MODIFIERS } from "./modifiers.ts";
 import { NET_RARITY_WEIGHTS } from "../nets/net.ts";
 
 function mockRandom(values: readonly number[]): void {
@@ -141,6 +144,7 @@ describe("tryCatch", () => {
       sizeCm: 15.36,
       weightG: 289.91,
       price: 214.5,
+      modifier: null,
       catcherFirstName: "Ира",
     });
   });
@@ -222,6 +226,7 @@ describe("boostedCatch", () => {
       sizeCm: 38.93,
       weightG: 4720.01,
       price: 2724,
+      modifier: null,
       catcherFirstName: "Ира",
     });
   });
@@ -252,6 +257,7 @@ describe("fakeFishCatch", () => {
       sizeCm: 62.5,
       weightG: 19531.25,
       price: 25414.06,
+      modifier: null,
       catcherFirstName: "Ира",
     });
 
@@ -306,5 +312,80 @@ describe("net rarity weights", () => {
     const rolled: number[] = [];
     for (let i = 0; i < 8; i++) rolled.push(rollPoint(catalog, 0, Math.random, NET_RARITY_WEIGHTS));
     expect(rolled).toEqual([1, 1, 2, 2, 3, 5, 6, 6]);
+  });
+});
+
+describe("rollModifier", () => {
+  test("modifier weights sum to 100 so every catalog entry stays reachable", () => {
+    expect(FISH_MODIFIERS.reduce((sum, modifier) => sum + modifier.weight, 0)).toBe(100);
+    // A roll just below each band's midpoint must select exactly that modifier.
+    const midBandRandoms = [0.18, 0.5, 0.7, 0.82, 0.89, 0.94, 0.97, 0.99];
+    for (const [i, modifier] of FISH_MODIFIERS.entries()) {
+      expect(rollModifier(100, () => midBandRandoms[i]! - 0.001)).toBe(modifier);
+    }
+  });
+
+  test("0% never draws and never consumes randomness", () => {
+    mockRandom([]);
+    expect(rollModifier(0)).toBeNull();
+  });
+
+  test("applies the drop chance as an exclusive percentage band", () => {
+    expect(rollModifier(12, () => 0.119)).toBe(FISH_MODIFIERS[0]!);
+    expect(rollModifier(12, () => 0.129)).toBeNull();
+    expect(rollModifier(100, () => 0.999_999)).toBe(FISH_MODIFIERS[FISH_MODIFIERS.length - 1]!);
+  });
+
+  test("each weight band picks exactly its modifier on both sides of the boundary", () => {
+    const bands = [37, 62, 77, 86, 92, 96, 98.5, 100];
+    for (const [i, modifier] of FISH_MODIFIERS.entries()) {
+      const lower = i === 0 ? 0 : bands[i - 1]!;
+      const inside = (lower + bands[i]!) / 200; // midpoint fraction of the band
+      const justBelow = (bands[i]! - 0.001) / 100;
+      const justAbove = (bands[i]! + 0.001) / 100;
+      expect(rollModifier(100, () => inside)).toBe(modifier);
+      expect(rollModifier(100, () => justBelow)).toBe(modifier);
+      if (i + 1 < FISH_MODIFIERS.length) {
+        expect(rollModifier(100, () => justAbove)).toBe(FISH_MODIFIERS[i + 1]!);
+      }
+    }
+  });
+});
+
+describe("generateCatch with a modifier", () => {
+  const catalog: Catalog = [[{ name: "Окунь", rarity: "Обычный", point: 1 }]];
+
+  test("scales size first, then recomputes weight and price from it", () => {
+    const golden = FISH_MODIFIERS.find((modifier) => modifier.id === "golden")!;
+    // Template pick, six beta draws sizing the base fish at 15.36, then the
+    // modifier roll wins (0 < 100) and lands on golden (62 is inside the
+    // 37-62 weight band).
+    mockRandom([0, ...SIZE_RANDOMS, 0, 0.62]);
+
+    expect(generateCatch(catalog, 1, "Ира", 100)).toEqual({
+      name: "Окунь",
+      rarity: "Обычный",
+      point: 1,
+      sizeCm: 17.66,
+      weightG: 440.62,
+      price: 355.25,
+      modifier: golden,
+      catcherFirstName: "Ира",
+    });
+  });
+
+  test("keeps the unmodified formulas when the modifier roll is lost", () => {
+    mockRandom([0, ...SIZE_RANDOMS, 0.999_999]);
+
+    expect(generateCatch(catalog, 1, "Ира", 12)).toEqual({
+      name: "Окунь",
+      rarity: "Обычный",
+      point: 1,
+      sizeCm: 15.36,
+      weightG: 289.91,
+      price: 214.5,
+      modifier: null,
+      catcherFirstName: "Ира",
+    });
   });
 });

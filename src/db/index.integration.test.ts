@@ -77,7 +77,7 @@ describe.skipIf(databaseUrl === undefined)("Repo inventory economy integration",
     await migrateSchema(sql!);
     const repo = createRepo(sql!);
     await repo.ensureFisher(1, -100, "Player");
-    await repo.recordCatch({ username: "Player", userId: 1, chatId: -100, fishName: "One", rarity: "Common", point: 1, sizeCm: 30, weightG: 1000, price: 100 });
+    await repo.recordCatch({ username: "Player", userId: 1, chatId: -100, fishName: "One", rarity: "Common", point: 1, sizeCm: 30, weightG: 1000, price: 100, fishModifierId: null, fishModifierName: null, fishModifierRarity: null });
     expect((await repo.getFisher(1, -100))!.balance).toBe(0);
     const page = await repo.getInventoryPage(1, -100, 1, 5);
     expect(page.fishes).toHaveLength(1);
@@ -108,6 +108,9 @@ describe.skipIf(databaseUrl === undefined)("Repo inventory economy integration",
       sizeCm: 30,
       weightG: 1000,
       price: 100,
+      fishModifierId: null,
+      fishModifierName: null,
+      fishModifierRarity: null,
     });
 
     expect(await repo.deleteLastCatch(1, -100)).toMatchObject({ fishName: "Removed", price: 100 });
@@ -115,6 +118,86 @@ describe.skipIf(databaseUrl === undefined)("Repo inventory economy integration",
     expect((await repo.getInventoryPage(1, -100, 1, 5)).totalCount).toBe(0);
     const rows = (await sql!`SELECT inventory_state FROM caught_fishes`) as Array<{ inventory_state: string }>;
     expect(rows).toEqual([{ inventory_state: "removed" }]);
+  });
+
+  test("stores modifier fields on new catches and reads legacy rows as null", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(1, -100, "Player");
+    await repo.ensureFisher(2, -100, "Other");
+    // A row written before the modifier columns existed reads back without error.
+    await createAvailableCatch(1, -100, 1, 100, "Legacy");
+    await createAvailableCatch(2, -100, 2, 200, "Щука");
+    await repo.recordCatch({
+      username: "Player",
+      userId: 1,
+      chatId: -100,
+      fishName: "Окунь",
+      rarity: "Обычный",
+      point: 1,
+      sizeCm: 17.66,
+      weightG: 440.62,
+      price: 355.25,
+      fishModifierId: "golden",
+      fishModifierName: "Золотая",
+      fishModifierRarity: "Редкий",
+    });
+
+    const page = await repo.getInventoryPage(1, -100, 1, 5);
+    expect(page.fishes).toEqual([
+      expect.objectContaining({
+        name: "Окунь",
+        fishModifierId: "golden",
+        fishModifierName: "Золотая",
+        fishModifierRarity: "Редкий",
+      }),
+      expect.objectContaining({
+        name: "Legacy",
+        fishModifierId: null,
+        fishModifierName: null,
+        fishModifierRarity: null,
+      }),
+    ]);
+    // A trade shows the real value: the modifier travels with the fish details.
+    const requestedId = (await repo.getInventoryPage(2, -100, 1, 5)).fishes[0]!.id;
+    const created = await repo.createTrade({
+      chatId: -100,
+      initiatorUserId: 1,
+      initiatorFirstName: "Player",
+      targetUserId: 2,
+      targetFirstName: "Other",
+      offer: { kind: "fish", offeredFishId: page.fishes[0]!.id },
+      requestedFishId: requestedId,
+    });
+    expect(created.status).toBe("created");
+    if (created.status !== "created") return;
+    expect(created.trade.offer).toEqual({
+      kind: "fish",
+      fish: expect.objectContaining({
+        id: page.fishes[0]!.id,
+        fishModifierId: "golden",
+        fishModifierName: "Золотая",
+        fishModifierRarity: "Редкий",
+      }),
+    });
+    expect(created.trade.requestedFish).toEqual(
+      expect.objectContaining({ name: "Щука", fishModifierId: null, fishModifierName: null, fishModifierRarity: null }),
+    );
+    expect(await repo.getTrade(created.trade.id)).toEqual(created.trade);
+
+    // Selling keeps the stored modifier data on the row itself.
+    expect(await repo.sellFish(1, -100, page.fishes[0]!.id)).toEqual({ status: "sold", count: 1, total: 355.25 });
+    const soldRows = (await sql!`SELECT fish_modifier_id, fish_modifier_name, fish_modifier_rarity
+      FROM caught_fishes WHERE id = ${page.fishes[0]!.id}`) as Array<Record<string, unknown>>;
+    expect(soldRows[0]).toEqual({ fish_modifier_id: "golden", fish_modifier_name: "Золотая", fish_modifier_rarity: "Редкий" });
+
+    // The latest remaining catch is returned together with its modifier fields.
+    expect(await repo.deleteLastCatch(1, -100)).toMatchObject({
+      fishName: "Legacy",
+      fishModifierId: null,
+      fishModifierName: null,
+      fishModifierRarity: null,
+    });
   });
 
   test("reports the exact missing recipe rarity without changing resources", async () => {
@@ -211,7 +294,7 @@ describe.skipIf(databaseUrl === undefined)("Repo fishing nets integration", () =
   });
 
   function netCatch(userId: number, chatId: number, fishName: string): CatchInsert {
-    return { username: "Игрок", userId, chatId, fishName, rarity: "Обычный", point: 1, sizeCm: 12, weightG: 138, price: 250 };
+    return { username: "Игрок", userId, chatId, fishName, rarity: "Обычный", point: 1, sizeCm: 12, weightG: 138, price: 250, fishModifierId: null, fishModifierName: null, fishModifierRarity: null };
   }
 
   test("duplicate casts keep one row and return the original cast time", async () => {
@@ -249,6 +332,9 @@ describe.skipIf(databaseUrl === undefined)("Repo fishing nets integration", () =
     const repo = createRepo(sql!);
     await repo.castFishingNet(9, -100, "Игрок", 5_000);
     const catches = ["Окунь", "Лещ", "Карп"].map((name) => netCatch(9, -100, name));
+    catches[2]!.fishModifierId = "abyssal";
+    catches[2]!.fishModifierName = "Бездна";
+    catches[2]!.fishModifierRarity = "Мифический";
 
     expect(await repo.collectFishingNet(9, -100, 5_000 + NET_DURATION_SECONDS, catches)).toEqual({
       status: "collected",
@@ -256,6 +342,11 @@ describe.skipIf(databaseUrl === undefined)("Repo fishing nets integration", () =
     });
     expect(await repo.getFishingNet(9, -100)).toBeNull();
     expect(await repo.countUserFishes(9, -100)).toBe(3);
+    const modifierRows = (await sql!`SELECT fish_name, fish_modifier_id, fish_modifier_name, fish_modifier_rarity
+      FROM caught_fishes WHERE fish_modifier_id IS NOT NULL`) as Array<Record<string, unknown>>;
+    expect(modifierRows).toEqual([
+      { fish_name: "Карп", fish_modifier_id: "abyssal", fish_modifier_name: "Бездна", fish_modifier_rarity: "Мифический" },
+    ]);
 
     const replay = await repo.collectFishingNet(9, -100, 5_000 + NET_DURATION_SECONDS + 10, catches);
     expect(replay).toEqual({ status: "not_cast" });

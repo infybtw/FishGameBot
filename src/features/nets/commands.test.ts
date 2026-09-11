@@ -2,7 +2,8 @@ import { afterEach, expect, jest, spyOn, test } from "bun:test";
 import { Bot } from "grammy";
 import type { Chat, Update, User } from "grammy/types";
 import type { BotContext } from "../../bot.ts";
-import type { FishingNetRow, FishingNetCollectResult, Repo } from "../../db/index.ts";
+import type { Config } from "../../config.ts";
+import type { CatchInsert, FishingNetRow, FishingNetCollectResult, Repo } from "../../db/index.ts";
 import { setCatalog } from "../fishing/catalog.ts";
 import { NET_DURATION_SECONDS } from "./net.ts";
 import { buildNetCallbackData } from "./callback-data.ts";
@@ -11,6 +12,16 @@ import { registerNetCommands } from "./commands.ts";
 type CommandChat = Extract<Chat, { type: "group" | "supergroup" | "private" }>;
 type FixtureUser = { id: number; first_name: string; is_bot?: boolean };
 type ApiCall = { method: string; payload: Record<string, unknown> };
+
+const NET_CFG: Config = {
+  botToken: "0:test",
+  adminUserId: 1,
+  catchSuccessChance: 50,
+  catchDelaySeconds: 0,
+  curseDropChance: 0,
+  fishModifierDropChance: 0,
+  databaseUrl: "postgres://localhost/fishbot_test",
+};
 
 const OWNER: FixtureUser = { id: 9, first_name: "Игрок" };
 const FOREIGNER: FixtureUser = { id: 22, first_name: "Чужак" };
@@ -87,12 +98,12 @@ function createNetRepo(): {
   repo: Repo;
   calls: string[];
   nets: Map<string, FakeNet>;
-  catches: Array<{ userId: number; chatId: number; fishName: string }>;
+  catches: CatchInsert[];
   collectScript: FishingNetCollectResult[];
 } {
   const calls: string[] = [];
   const nets = new Map<string, FakeNet>();
-  const catches: Array<{ userId: number; chatId: number; fishName: string }> = [];
+  const catches: CatchInsert[] = [];
   const collectScript: FishingNetCollectResult[] = [];
   const key = (userId: number, chatId: number) => `${userId}:${chatId}`;
   const repo = {
@@ -110,12 +121,7 @@ function createNetRepo(): {
       nets.set(key(userId, chatId), { userId, chatId, firstName, castAt, readyNotifiedAt: null });
       return castAt;
     },
-    async collectFishingNet(
-      userId: number,
-      chatId: number,
-      now: number,
-      inserts: Array<{ userId: number; chatId: number; fishName: string }>,
-    ) {
+    async collectFishingNet(userId: number, chatId: number, now: number, inserts: CatchInsert[]) {
       calls.push("collectFishingNet");
       if (collectScript.length > 0) return collectScript.shift()!;
       const net = nets.get(key(userId, chatId));
@@ -131,7 +137,7 @@ function createNetRepo(): {
   return { repo, calls, nets, catches, collectScript };
 }
 
-function createTestBot(repo: Repo): { bot: Bot<BotContext>; apiCalls: ApiCall[] } {
+function createTestBot(repo: Repo, cfg: Config = NET_CFG): { bot: Bot<BotContext>; apiCalls: ApiCall[] } {
   const bot = new Bot<BotContext>("123:test", {
     botInfo: { id: 999, is_bot: true, first_name: "FishBot", username: "fishbot" } as never,
   });
@@ -140,7 +146,7 @@ function createTestBot(repo: Repo): { bot: Bot<BotContext>; apiCalls: ApiCall[] 
     apiCalls.push({ method, payload: payload as Record<string, unknown> });
     return { ok: true, result: true } as never;
   });
-  registerNetCommands(bot, repo);
+  registerNetCommands(bot, cfg, repo);
   return { bot, apiCalls };
 }
 
@@ -414,4 +420,32 @@ test("collection is refused without a weighted template and the net stays cast",
   expect(catches).toHaveLength(0);
   expect(nets.size).toBe(1);
   expect(editCalls(apiCalls)).toHaveLength(0);
+});
+
+test("every net catch rolls its modifier independently and reaches the batch insert", async () => {
+  setCatalog(FULL_CATALOG);
+  const { repo, catches } = createNetRepo();
+  const { bot, apiCalls } = createTestBot(repo, { ...NET_CFG, fishModifierDropChance: 100 });
+  const castAt = 5_000_000;
+  mockNow(castAt);
+  await repo.castFishingNet(OWNER.id, GROUP_CHAT.id, OWNER.first_name, castAt);
+  mockNow(castAt + NET_DURATION_SECONDS);
+  // The count roll lands on the inclusive maximum: six fish. Every later
+  // draw defaults to 0.5, so each fish's own modifier roll lands on silver
+  // (50 falls inside the 37-62 weight band).
+  mockRandom([0.999_999_999_999_999_9]);
+
+  await bot.handleUpdate(
+    callbackUpdate({ updateId: 14, ownerId: OWNER.id, pressingUserId: OWNER.id, data: buildNetCallbackData(OWNER.id, { kind: "collect" }) }),
+  );
+
+  expect(catches).toHaveLength(6);
+  for (const fish of catches) {
+    expect(fish.fishName).toBe("Окунь");
+    expect(fish.fishModifierId).toBe("silver");
+    expect(fish.fishModifierName).toBe("Серебряная");
+    expect(fish.fishModifierRarity).toBe("Необычный");
+  }
+  const editText = String(editCalls(apiCalls)[0]!.payload.text);
+  expect(editText).toContain("Улов из сети: Серебряная Окунь (Обычный)");
 });

@@ -16,6 +16,7 @@ const CFG: Config = {
   catchSuccessChance: 50,
   catchDelaySeconds: 0,
   curseDropChance: 0,
+  fishModifierDropChance: 0,
   databaseUrl: "postgres://localhost/fishbot_test",
 };
 
@@ -112,7 +113,15 @@ function createFakeRepo(): FakeRepo {
       }
       if (index === -1) return null;
       const removed = catches.splice(index, 1)[0]!;
-      return { fishName: removed.fishName, rarity: removed.rarity, point: removed.point, price: removed.price };
+      return {
+        fishName: removed.fishName,
+        rarity: removed.rarity,
+        point: removed.point,
+        price: removed.price,
+        fishModifierId: removed.fishModifierId,
+        fishModifierName: removed.fishModifierName,
+        fishModifierRarity: removed.fishModifierRarity,
+      };
     },
     async getCatchTime(userId, chatId) {
       calls.push("getCatchTime");
@@ -322,7 +331,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-test("/fishes lists escaped fish names, rarities, and normalized catch chances in a group", async () => {
+test("/fishes lists escaped fish names, rarities, normalized catch chances, and modifier odds in a group", async () => {
   setCatalog([
     [
       { name: "Окунь & <лещ>", rarity: "Обычный", point: 1 },
@@ -331,7 +340,7 @@ test("/fishes lists escaped fish names, rarities, and normalized catch chances i
     [],
     [{ name: "Сом", rarity: "Эпический", point: 3 }],
   ]);
-  const { bot, sentTexts } = createTestBot();
+  const { bot, sentTexts } = createTestBot({ ...CFG, fishModifierDropChance: 12 });
 
   await bot.handleUpdate(commandUpdate({ updateId: 1, text: "/fishes" }));
 
@@ -340,7 +349,17 @@ test("/fishes lists escaped fish names, rarities, and normalized catch chances i
       "<i>Шанс указан среди успешных уловов.</i>\n\n" +
       "• <b>Окунь &amp; &lt;лещ&gt;</b> — Обычный — 46.15%\n" +
       "• <b>Карась</b> — Обычный — 46.15%\n" +
-      "• <b>Сом</b> — Эпический — 7.69%",
+      "• <b>Сом</b> — Эпический — 7.69%\n\n" +
+      "✨ <b>Модификаторы</b> — 12% уловов\n" +
+      "<i>Шанс указан среди модифицированных рыб.</i>\n\n" +
+      "• <b>Упитанная</b> — Обычный — 37% — размер ×1.05 · цена ×1.1\n" +
+      "• <b>Серебряная</b> — Необычный — 25% — размер ×1.1 · цена ×1.25\n" +
+      "• <b>Золотая</b> — Редкий — 15% — размер ×1.15 · цена ×1.6\n" +
+      "• <b>Электрическая</b> — Редкий — 9% — размер ×1.18 · цена ×1.85\n" +
+      "• <b>Радужная</b> — Эпический — 6% — размер ×1.25 · цена ×2.5\n" +
+      "• <b>Лунная</b> — Эпический — 4% — размер ×1.3 · цена ×3.25\n" +
+      "• <b>Кристальная</b> — Легендарный — 2.5% — размер ×1.4 · цена ×4.5\n" +
+      "• <b>Бездна</b> — Мифический — 1.5% — размер ×1.55 · цена ×7",
   ]);
   expect(getCatalog()).toHaveLength(3);
 });
@@ -435,6 +454,9 @@ test("/cr spends the replied player's latest available catch without changing ba
       sizeCm: 15.36,
       weightG: 289.91,
       price: 214.5,
+      fishModifierId: null,
+      fishModifierName: null,
+      fishModifierRarity: null,
     },
     {
       username: "Игрок",
@@ -446,6 +468,9 @@ test("/cr spends the replied player's latest available catch without changing ba
       sizeCm: 27.14,
       weightG: 1599.26,
       price: 719.85,
+      fishModifierId: null,
+      fishModifierName: null,
+      fishModifierRarity: null,
     },
   );
 
@@ -723,4 +748,59 @@ test("/fish golden_scales curse multiplies only the catcher's chat balance, not 
   expect(repo.catchTimes.get("9:-100")).toBe(start);
 
   nowSpy.mockRestore();
+});
+
+test("/fish records the rolled modifier, shows it on the card, and stores its displayed values", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, fishModifierDropChance: 100 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  // Catch, rarity point, template, beta size tail, then the modifier drop
+  // (always at 100%) and selection (62 lands on the golden band).
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS, 0, 0.62]);
+
+  await bot.handleUpdate(commandUpdate({ updateId: 307, text: "/fish", from: PLAYER }));
+
+  expect(repo.catches).toHaveLength(1);
+  expect(repo.catches[0]).toMatchObject({
+    fishName: "Окунь",
+    fishModifierId: "golden",
+    fishModifierName: "Золотая",
+    fishModifierRarity: "Редкий",
+  });
+  expect(sentTexts).toHaveLength(1);
+  expect(sentTexts[0]).toContain("<b>Модификатор:</b> Золотая (Редкий)");
+  expect(sentTexts[0]).toContain("<b>Цена:</b> 355.25рублей");
+});
+
+test("/fish leaves no modifier trace for an unmodified catch", async () => {
+  setCatalog(FULL_CATALOG);
+  const { bot, sentTexts, repo } = createTestBot();
+  // The modifier roll is skipped entirely at 0%, so the tail stays unused.
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS]);
+
+  await bot.handleUpdate(commandUpdate({ updateId: 308, text: "/fish", from: PLAYER }));
+
+  expect(repo.catches).toHaveLength(1);
+  expect(repo.catches[0]).toMatchObject({
+    fishModifierId: null,
+    fishModifierName: null,
+    fishModifierRarity: null,
+  });
+  expect(sentTexts[0]).toContain("<b>Имя:</b> Окунь");
+  expect(sentTexts[0]).not.toContain("Модификатор");
+});
+
+test("/fakefish shows a modifier by the usual rules without storing anything", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, fishModifierDropChance: 100 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  mockRandom([0, 0, ...SIZE_RANDOMS, 0, 0.62]);
+
+  await bot.handleUpdate(commandUpdate({ updateId: 309, text: "/fakefish", from: ADMIN }));
+
+  expect(sentTexts).toHaveLength(1);
+  expect(sentTexts[0]).toContain("<b>Имя:</b> Акула");
+  expect(sentTexts[0]).toContain("<b>Модификатор:</b> Золотая (Редкий)");
+  expect(repo.calls).toEqual([]);
+  expect(repo.catches).toHaveLength(0);
 });

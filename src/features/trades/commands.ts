@@ -5,6 +5,7 @@ import type { InventoryPage, Repo, TradeRow } from "../../db/index.ts";
 import { isGroup, replyTarget } from "../../guards.ts";
 import { log } from "../../logger.ts";
 import { round2 } from "../../lib/format.ts";
+import { modifierLabel } from "../fishing/modifiers.ts";
 import {
   buildMenuCallbackData,
   buildPublicCallbackData,
@@ -82,7 +83,10 @@ function inventoryKeyboard(
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (const fish of inventory.fishes) {
-    keyboard.text(`#${fish.id} ${fish.name}`, buildMenuCallbackData(ownerUserId, targetUserId, fishAction(fish.id))).row();
+    keyboard.text(
+      `#${fish.id} ${modifierLabel(fish.name, fish.fishModifierName)}`,
+      buildMenuCallbackData(ownerUserId, targetUserId, fishAction(fish.id)),
+    ).row();
   }
   if (inventory.page > 1) keyboard.text("←", buildMenuCallbackData(ownerUserId, targetUserId, pageAction(inventory.page - 1)));
   if (inventory.page * PAGE_SIZE < inventory.totalCount) {

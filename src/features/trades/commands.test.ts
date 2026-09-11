@@ -154,6 +154,9 @@ type FakeFish = {
   price: number;
   state: "available" | "sold" | "spent" | "removed";
   ownerName: string;
+  fishModifierId?: string | null;
+  fishModifierName?: string | null;
+  fishModifierRarity?: string | null;
 };
 
 type FakeFisher = { userId: number; chatId: number; firstName: string; balance: number };
@@ -179,6 +182,9 @@ function createFakeRepo(): FakeRepoState {
     rarity: fish.rarity,
     point: fish.point,
     price: fish.price,
+    fishModifierId: fish.fishModifierId ?? null,
+    fishModifierName: fish.fishModifierName ?? null,
+    fishModifierRarity: fish.fishModifierRarity ?? null,
   });
 
   const repo = {
@@ -204,7 +210,18 @@ function createFakeRepo(): FakeRepoState {
       return {
         fishes: available
           .slice((currentPage - 1) * pageSize, currentPage * pageSize)
-          .map(({ id, name, rarity, point, sizeCm, weightG, price }) => ({ id, name, rarity, point, sizeCm, weightG, price })),
+          .map(({ id, name, rarity, point, sizeCm, weightG, price, fishModifierId, fishModifierName, fishModifierRarity }) => ({
+            id,
+            name,
+            rarity,
+            point,
+            sizeCm,
+            weightG,
+            price,
+            fishModifierId: fishModifierId ?? null,
+            fishModifierName: fishModifierName ?? null,
+            fishModifierRarity: fishModifierRarity ?? null,
+          })),
         page: currentPage,
         totalCount,
         totalValue,
@@ -475,6 +492,46 @@ describe("fish-for-fish builder", () => {
       ["Отклонить", buildPublicCallbackData(1, { kind: "decline" })],
     ]);
     expect(answerCalls(apiCalls)[0]!.payload.text).toBe("Предложение отправлено.");
+  });
+
+  test("a modified fish keeps its label in lists, buttons, and the published offer", async () => {
+    const { repo, fishers, fishes } = createFakeRepo();
+    seedFisher(fishers, TARGET);
+    seedFish(fishes, 1, INITIATOR, "Окунь", 100);
+    Object.assign(fishes.get(1)!, { fishModifierId: "golden", fishModifierName: "Золотая", fishModifierRarity: "Редкий" });
+    seedFish(fishes, 2, TARGET, "Щука", 200);
+    const { bot, apiCalls } = createTestBot(repo);
+
+    await bot.handleUpdate(commandUpdate({ updateId: 1, text: "/trade", replyTo: TARGET }));
+    await bot.handleUpdate(
+      builderCallback({
+        updateId: 2,
+        ownerId: INITIATOR.id,
+        targetId: TARGET.id,
+        pressingId: INITIATOR.id,
+        data: buildMenuCallbackData(INITIATOR.id, TARGET.id, { kind: "initiatorFish", page: 1 }),
+      }),
+    );
+
+    const listEdit = editCalls(apiCalls)[0]!;
+    expect(String(listEdit.payload.text)).toContain("#1 <b>Золотая Окунь</b> — 100 ₽");
+    const listMarkup = listEdit.payload.reply_markup as InlineMarkup;
+    expect(listMarkup.inline_keyboard.flat().map((button) => button.text)).toContain("#1 Золотая Окунь");
+
+    apiCalls.length = 0;
+    await bot.handleUpdate(
+      builderCallback({
+        updateId: 3,
+        ownerId: INITIATOR.id,
+        targetId: TARGET.id,
+        pressingId: INITIATOR.id,
+        data: buildMenuCallbackData(INITIATOR.id, TARGET.id, { kind: "pickTargetFish", offeredFishId: 1, fishId: 2 }),
+      }),
+    );
+
+    const text = String(sendCalls(apiCalls)[0]!.payload.text);
+    expect(text).toContain("рыбу <b>Золотая Окунь</b> (Обычная · Золотая (Редкий)) — 100 ₽");
+    expect(text).toContain("рыбу <b>Щука</b> (Обычная) — 200 ₽");
   });
 
   test("shows an empty screen when the initiator has no available fish", async () => {

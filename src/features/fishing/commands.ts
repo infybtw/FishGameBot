@@ -111,9 +111,9 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     let boosted = false;
     if (chanceUp && (await repo.consumeChanceUp(userId, chatId))) {
       boosted = true;
-      fish = boostedCatch(catalog, firstName, rod.rarityStepBonus);
+      fish = boostedCatch(catalog, firstName, rod.rarityStepBonus, cfg.fishModifierDropChance);
     } else {
-      fish = tryCatch(catalog, firstName, successChance, rod.rarityStepBonus);
+      fish = tryCatch(catalog, firstName, successChance, rod.rarityStepBonus, cfg.fishModifierDropChance);
     }
     if (fish === null) {
       log.info({ userId, chatId }, "Catch attempt finished without a fish");
@@ -131,6 +131,9 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
       sizeCm: fish.sizeCm,
       weightG: fish.weightG,
       price: fish.price,
+      fishModifierId: fish.modifier?.id ?? null,
+      fishModifierName: fish.modifier?.name ?? null,
+      fishModifierRarity: fish.modifier?.rarity ?? null,
     });
     log.info(
       {
@@ -142,6 +145,7 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
         sizeCm: fish.sizeCm,
         weightG: fish.weightG,
         price: fish.price,
+        fishModifier: fish.modifier?.id ?? null,
         boosted,
         rodId: rod.id,
       },
@@ -210,8 +214,11 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
       await ctx.reply(FAKE_FISH_CATALOG_EMPTY);
       return;
     }
-    const fish = fakeFishCatch(catalog, ctx.from.first_name);
-    log.info({ userId: ctx.from.id, chatId: ctx.chat.id, fish: fish.name, point: fish.point }, "Fake fish shown");
+    const fish = fakeFishCatch(catalog, ctx.from.first_name, cfg.fishModifierDropChance);
+    log.info(
+      { userId: ctx.from.id, chatId: ctx.chat.id, fish: fish.name, point: fish.point, fishModifier: fish.modifier?.id ?? null },
+      "Fake fish shown",
+    );
     await ctx.reply(catchCard(fish));
   });
 
@@ -243,7 +250,7 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     let fishCount = 0;
     for (const group of catalog) fishCount += group?.length ?? 0;
     log.debug({ chatId: ctx.chat.id, fishCount }, "Fish catalog requested");
-    await ctx.reply(fishCatalogMessage(catalog));
+    await ctx.reply(fishCatalogMessage(catalog, cfg.fishModifierDropChance));
   });
 
   bot.command("cr", async (ctx) => {

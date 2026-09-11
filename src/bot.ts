@@ -108,7 +108,7 @@ export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess)
   bot.use(conversations());
   registerGroupCommands(bot, cfg, repo);
   registerUpgradeCommands(bot, cfg, repo);
-  registerNetCommands(bot, repo);
+  registerNetCommands(bot, cfg, repo);
   registerTradeCommands(bot, repo);
   registerInfoCommands(bot);
   registerChangelogCommand(bot);
