@@ -3,6 +3,7 @@ import type { Api } from "grammy";
 import { log } from "../logger.ts";
 
 const INFO_COMMAND: BotCommand = { command: "info", description: "Информация о боте" };
+const CHANGELOG_COMMAND: BotCommand = { command: "changelog", description: "Последние обновления" };
 
 /** Commands that work for anyone inside group chats. */
 const PUBLIC_GROUP_COMMANDS: BotCommand[] = [
@@ -14,6 +15,7 @@ const PUBLIC_GROUP_COMMANDS: BotCommand[] = [
   { command: "stats", description: "Статистика рыбалки" },
   { command: "trade", description: "Предложить обмен рыбы или денег" },
   INFO_COMMAND,
+  CHANGELOG_COMMAND,
 ];
 
 /** Extra commands only the bot owner can run inside group chats. */
@@ -49,7 +51,7 @@ const OWNER_PRIVATE_COMMANDS: BotCommand[] = [
  */
 export async function syncCommandMenu(api: Api, adminUserId: number, groupChatIds: readonly number[]): Promise<void> {
   await api.setMyCommands(PUBLIC_GROUP_COMMANDS, { scope: { type: "all_group_chats" } });
-  await api.setMyCommands([INFO_COMMAND], { scope: { type: "all_private_chats" } });
+  await api.setMyCommands([INFO_COMMAND, CHANGELOG_COMMAND], { scope: { type: "all_private_chats" } });
   await api.setMyCommands(OWNER_PRIVATE_COMMANDS, { scope: { type: "chat", chat_id: adminUserId } });
 
   let ownerMenus = 0;

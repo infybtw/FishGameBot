@@ -17,6 +17,7 @@
 ## Structure and bot conventions
 
 - Register new Telegram behavior from `src/bot.ts`; feature modules are organized under `src/features/`, while all persistence stays behind the `Repo` returned by `src/db/index.ts`.
+- Record every user-visible update in a versioned file under `src/changes/` and add it to `src/changes/index.ts` so `/changelog` includes it.
 - Game state is scoped by both Telegram `userId` and `chatId`; preserve that boundary in repository calls and queries.
 - Outgoing bot messages default to Telegram HTML parse mode in `createBot`; escape dynamic text unless it is intentionally trusted markup.
 - Keep callback payloads within Telegram's 64-byte limit and validate decoded callback data before any state mutation; existing feature callback modules and tests define the pattern.
