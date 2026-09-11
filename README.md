@@ -161,6 +161,7 @@ These commands are available in groups and supergroups:
 | `/fishtop` | Show the current chat's fishing leaderboard. |
 | `/stats` | Show your statistics for the current chat. |
 | `/trade` | Offer a player trade: reply to the other player's message with `/trade`, then offer one of your fish (or money) for one of theirs. Only the replied-to player can accept or decline the published offer. |
+| `/fish_upgrade` | Open a private menu of your available fish and try to upgrade one to the next rarity level. The success chance falls as rarity grows (80/60/40/20/10% for points 1–5); a failed attempt consumes the fish. |
 | `/info` | Show bot version, command help, and repository information. |
 
 ### Administrator commands

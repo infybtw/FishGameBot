@@ -11,6 +11,7 @@ import { registerChangelogCommand } from "./features/changelog.ts";
 import { registerNetCommands } from "./features/nets/commands.ts";
 import { registerUpgradeCommands } from "./features/upgrades/commands.ts";
 import { registerTradeCommands } from "./features/trades/commands.ts";
+import { registerFishUpgradeCommands } from "./features/fish-upgrade/commands.ts";
 import { log } from "./logger.ts";
 
 export type BotContext = ConversationFlavor<Context>;
@@ -110,6 +111,7 @@ export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess)
   registerUpgradeCommands(bot, cfg, repo);
   registerNetCommands(bot, cfg, repo);
   registerTradeCommands(bot, repo);
+  registerFishUpgradeCommands(bot, repo);
   registerInfoCommands(bot);
   registerChangelogCommand(bot);
   registerAdminCommands(bot, cfg, repo, catalogAccess);
