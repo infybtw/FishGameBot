@@ -80,6 +80,9 @@ function toCatchInserts(userId: number, chatId: number, catches: readonly Caught
     sizeCm: fish.sizeCm,
     weightG: fish.weightG,
     price: fish.price,
+    fishModifierId: fish.modifier?.id ?? null,
+    fishModifierName: fish.modifier?.name ?? null,
+    fishModifierRarity: fish.modifier?.rarity ?? null,
   }));
 }
 

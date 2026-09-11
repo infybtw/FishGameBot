@@ -113,7 +113,15 @@ function createFakeRepo(): FakeRepo {
       }
       if (index === -1) return null;
       const removed = catches.splice(index, 1)[0]!;
-      return { fishName: removed.fishName, rarity: removed.rarity, point: removed.point, price: removed.price };
+      return {
+        fishName: removed.fishName,
+        rarity: removed.rarity,
+        point: removed.point,
+        price: removed.price,
+        fishModifierId: removed.fishModifierId,
+        fishModifierName: removed.fishModifierName,
+        fishModifierRarity: removed.fishModifierRarity,
+      };
     },
     async getCatchTime(userId, chatId) {
       calls.push("getCatchTime");
@@ -436,6 +444,9 @@ test("/cr spends the replied player's latest available catch without changing ba
       sizeCm: 15.36,
       weightG: 289.91,
       price: 214.5,
+      fishModifierId: null,
+      fishModifierName: null,
+      fishModifierRarity: null,
     },
     {
       username: "Игрок",
@@ -447,6 +458,9 @@ test("/cr spends the replied player's latest available catch without changing ba
       sizeCm: 27.14,
       weightG: 1599.26,
       price: 719.85,
+      fishModifierId: null,
+      fishModifierName: null,
+      fishModifierRarity: null,
     },
   );
 

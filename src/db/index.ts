@@ -7,6 +7,12 @@ export type FishTemplateInsert = { name: string; rarity: string; point: number }
 export type FisherRow = { userId: number; chatId: number; firstName: string; balance: number };
 export type CooldownRow = { userId: number; firstName: string; lastCatchTime: number };
 export type TopFisherRow = { firstName: string; total: number };
+/** Modifier columns stored alongside a catch; null for unmodified fish. */
+export type FishModifierFields = {
+  fishModifierId: string | null;
+  fishModifierName: string | null;
+  fishModifierRarity: string | null;
+};
 export type CatchInsert = {
   username: string;
   userId: number;
@@ -17,9 +23,9 @@ export type CatchInsert = {
   sizeCm: number;
   weightG: number;
   price: number;
-};
+} & FishModifierFields;
 /** The most recent available catch spent by /cr. */
-export type DeletedCatch = { fishName: string; rarity: string; point: number; price: number };
+export type DeletedCatch = { fishName: string; rarity: string; point: number; price: number } & FishModifierFields;
 export type InventoryFishRow = {
   id: number;
   name: string;
@@ -28,7 +34,7 @@ export type InventoryFishRow = {
   sizeCm: number;
   weightG: number;
   price: number;
-};
+} & FishModifierFields;
 export type InventoryPage = {
   fishes: InventoryFishRow[];
   page: number;
@@ -66,7 +72,8 @@ export type FishingNetCollectResult =
 
 export type TradeStatus = "pending" | "accepted" | "declined" | "unavailable";
 /** Display details of a catch involved in a trade. */
-export type TradeFishDetails = { id: number; name: string; rarity: string; point: number; price: number };
+export type TradeFishDetails = { id: number; name: string; rarity: string; point: number; price: number } &
+  FishModifierFields;
 /** What the initiator gives: one specific catch, or a positive money amount. */
 export type TradeOffer = { kind: "fish"; fish: TradeFishDetails } | { kind: "money"; amount: number };
 export type TradeOfferInput = { kind: "fish"; offeredFishId: number } | { kind: "money"; amount: number };
@@ -131,6 +138,11 @@ const SCHEMA_STATEMENTS = [
     CHECK (inventory_state IN ('available', 'sold', 'spent', 'removed'))`,
   `CREATE INDEX IF NOT EXISTS caught_fishes_inventory_lookup_idx
     ON caught_fishes (user_id, chat_id, inventory_state, fish_rarity_point, id)`,
+  // Modifier data is denormalized onto each catch so already caught fish keep
+  // their displayed values when the in-code catalog gets rebalanced.
+  `ALTER TABLE caught_fishes ADD COLUMN IF NOT EXISTS fish_modifier_id TEXT`,
+  `ALTER TABLE caught_fishes ADD COLUMN IF NOT EXISTS fish_modifier_name TEXT`,
+  `ALTER TABLE caught_fishes ADD COLUMN IF NOT EXISTS fish_modifier_rarity TEXT`,
   `CREATE TABLE IF NOT EXISTS fisher_rods (
   user_id BIGINT NOT NULL,
   chat_id BIGINT NOT NULL,
@@ -230,6 +242,19 @@ function firstNumber(rows: Array<Record<string, unknown>>, column: string): numb
   return row === undefined ? 0 : asNumber(row[column]);
 }
 
+/** Reads the nullable modifier columns; supports the trade join aliases. */
+function modifierFields(row: Record<string, unknown>, prefix = ""): FishModifierFields {
+  const read = (suffix: string): string | null => {
+    const value = row[`${prefix}${suffix}`];
+    return value === null || value === undefined ? null : String(value);
+  };
+  return {
+    fishModifierId: read("fish_modifier_id"),
+    fishModifierName: read("fish_modifier_name"),
+    fishModifierRarity: read("fish_modifier_rarity"),
+  };
+}
+
 function toFishingNetRow(row: Record<string, unknown>): FishingNetRow {
   return {
     userId: asNumber(row.user_id),
@@ -253,6 +278,7 @@ function toTradeRow(row: Record<string, unknown>): TradeRow {
             rarity: String(row.o_fish_rarity),
             point: asNumber(row.o_fish_rarity_point),
             price: asNumber(row.o_fish_price),
+            ...modifierFields(row, "o_"),
           },
         };
   const requestedFish: TradeFishDetails | null =
@@ -264,6 +290,7 @@ function toTradeRow(row: Record<string, unknown>): TradeRow {
           rarity: String(row.r_fish_rarity),
           point: asNumber(row.r_fish_rarity_point),
           price: asNumber(row.r_fish_price),
+          ...modifierFields(row, "r_"),
         };
   return {
     id: asNumber(row.id),
@@ -341,9 +368,10 @@ export function createRepo(sql: SQL): Repo {
     },
     async recordCatch(catch_): Promise<void> {
       await sql`INSERT INTO caught_fishes
-        (username, user_id, fish_name, fish_weight, fish_size, fish_rarity, fish_rarity_point, fish_price, chat_id, inventory_state)
+        (username, user_id, fish_name, fish_weight, fish_size, fish_rarity, fish_rarity_point, fish_price, chat_id, inventory_state, fish_modifier_id, fish_modifier_name, fish_modifier_rarity)
         VALUES (${catch_.username}, ${catch_.userId}, ${catch_.fishName}, ${catch_.weightG}, ${catch_.sizeCm},
-        ${catch_.rarity}, ${catch_.point}, ${catch_.price}, ${catch_.chatId}, 'available')`;
+        ${catch_.rarity}, ${catch_.point}, ${catch_.price}, ${catch_.chatId}, 'available',
+        ${catch_.fishModifierId}, ${catch_.fishModifierName}, ${catch_.fishModifierRarity})`;
     },
     async deleteLastCatch(userId, chatId): Promise<DeletedCatch | null> {
       return sql.begin(async (tx) => {
@@ -351,7 +379,9 @@ export function createRepo(sql: SQL): Repo {
           WHERE id = (SELECT id FROM caught_fishes
             WHERE user_id = ${userId} AND chat_id = ${chatId} AND inventory_state = 'available'
             ORDER BY id DESC LIMIT 1 FOR UPDATE)
-          RETURNING fish_name, fish_rarity, fish_rarity_point, fish_price`) as Array<Record<string, unknown>>;
+          RETURNING fish_name, fish_rarity, fish_rarity_point, fish_price, fish_modifier_id, fish_modifier_name, fish_modifier_rarity`) as Array<
+          Record<string, unknown>
+        >;
         const row = rows[0];
         if (row === undefined) return null;
         return {
@@ -359,6 +389,7 @@ export function createRepo(sql: SQL): Repo {
           rarity: String(row.fish_rarity),
           point: asNumber(row.fish_rarity_point),
           price: asNumber(row.fish_price),
+          ...modifierFields(row),
         };
       });
     },
@@ -439,7 +470,8 @@ export function createRepo(sql: SQL): Repo {
       const totalValue = firstNumber(totals, "total");
       const lastPage = Math.max(1, Math.ceil(totalCount / pageSize));
       const currentPage = Math.min(Math.max(1, page), lastPage);
-      const rows = (await sql`SELECT id, fish_name, fish_rarity, fish_rarity_point, fish_size, fish_weight, fish_price
+      const rows = (await sql`SELECT id, fish_name, fish_rarity, fish_rarity_point, fish_size, fish_weight, fish_price,
+          fish_modifier_id, fish_modifier_name, fish_modifier_rarity
         FROM caught_fishes
         WHERE user_id = ${userId} AND chat_id = ${chatId} AND inventory_state = 'available'
         ORDER BY id DESC LIMIT ${pageSize} OFFSET ${(currentPage - 1) * pageSize}`) as Array<Record<string, unknown>>;
@@ -452,6 +484,7 @@ export function createRepo(sql: SQL): Repo {
           sizeCm: asNumber(row.fish_size),
           weightG: asNumber(row.fish_weight),
           price: asNumber(row.fish_price),
+          ...modifierFields(row),
         })),
         page: currentPage,
         totalCount,
@@ -673,9 +706,10 @@ export function createRepo(sql: SQL): Repo {
         if (castAt + 43_200 > now) return { status: "not_ready", castAt };
         for (const catch_ of catches) {
           await tx`INSERT INTO caught_fishes
-            (username, user_id, fish_name, fish_weight, fish_size, fish_rarity, fish_rarity_point, fish_price, chat_id, inventory_state)
+            (username, user_id, fish_name, fish_weight, fish_size, fish_rarity, fish_rarity_point, fish_price, chat_id, inventory_state, fish_modifier_id, fish_modifier_name, fish_modifier_rarity)
             VALUES (${catch_.username}, ${catch_.userId}, ${catch_.fishName}, ${catch_.weightG}, ${catch_.sizeCm},
-            ${catch_.rarity}, ${catch_.point}, ${catch_.price}, ${catch_.chatId}, 'available')`;
+            ${catch_.rarity}, ${catch_.point}, ${catch_.price}, ${catch_.chatId}, 'available',
+            ${catch_.fishModifierId}, ${catch_.fishModifierName}, ${catch_.fishModifierRarity})`;
         }
         await tx`DELETE FROM fishing_nets WHERE user_id = ${userId} AND chat_id = ${chatId}`;
         return { status: "collected", castAt };
@@ -718,7 +752,8 @@ export function createRepo(sql: SQL): Repo {
     },
     async createTrade(insert): Promise<CreateTradeResult> {
       return sql.begin(async (tx) => {
-        const requestedRows = (await tx`SELECT id, fish_name, fish_rarity, fish_rarity_point, fish_price FROM caught_fishes
+        const requestedRows = (await tx`SELECT id, fish_name, fish_rarity, fish_rarity_point, fish_price,
+            fish_modifier_id, fish_modifier_name, fish_modifier_rarity FROM caught_fishes
           WHERE id = ${insert.requestedFishId} AND user_id = ${insert.targetUserId} AND chat_id = ${insert.chatId}
             AND inventory_state = 'available'`) as Array<Record<string, unknown>>;
         const requested = requestedRows[0];
@@ -727,7 +762,8 @@ export function createRepo(sql: SQL): Repo {
         let offeredMoney: number | null = null;
         if (insert.offer.kind === "fish") {
           if (insert.offer.offeredFishId === insert.requestedFishId) return { status: "stale" };
-          const offeredRows = (await tx`SELECT id, fish_name, fish_rarity, fish_rarity_point, fish_price FROM caught_fishes
+          const offeredRows = (await tx`SELECT id, fish_name, fish_rarity, fish_rarity_point, fish_price,
+              fish_modifier_id, fish_modifier_name, fish_modifier_rarity FROM caught_fishes
             WHERE id = ${insert.offer.offeredFishId} AND user_id = ${insert.initiatorUserId} AND chat_id = ${insert.chatId}
               AND inventory_state = 'available'`) as Array<Record<string, unknown>>;
           const offered = offeredRows[0];
@@ -738,6 +774,7 @@ export function createRepo(sql: SQL): Repo {
             rarity: String(offered.fish_rarity),
             point: asNumber(offered.fish_rarity_point),
             price: asNumber(offered.fish_price),
+            ...modifierFields(offered),
           };
         } else {
           if (!Number.isFinite(insert.offer.amount) || insert.offer.amount <= 0) return { status: "stale" };
@@ -768,6 +805,7 @@ export function createRepo(sql: SQL): Repo {
               rarity: String(requested.fish_rarity),
               point: asNumber(requested.fish_rarity_point),
               price: asNumber(requested.fish_price),
+              ...modifierFields(requested),
             },
             status: "pending",
           },
@@ -778,7 +816,9 @@ export function createRepo(sql: SQL): Repo {
       const rows = (await sql`SELECT t.id, t.chat_id, t.initiator_user_id, t.initiator_first_name,
         t.target_user_id, t.target_first_name, t.offered_fish_id, t.offered_money, t.status,
         o.fish_name AS o_fish_name, o.fish_rarity AS o_fish_rarity, o.fish_rarity_point AS o_fish_rarity_point, o.fish_price AS o_fish_price,
-        r.id AS r_id, r.fish_name AS r_fish_name, r.fish_rarity AS r_fish_rarity, r.fish_rarity_point AS r_fish_rarity_point, r.fish_price AS r_fish_price
+        o.fish_modifier_id AS o_fish_modifier_id, o.fish_modifier_name AS o_fish_modifier_name, o.fish_modifier_rarity AS o_fish_modifier_rarity,
+        r.id AS r_id, r.fish_name AS r_fish_name, r.fish_rarity AS r_fish_rarity, r.fish_rarity_point AS r_fish_rarity_point, r.fish_price AS r_fish_price,
+        r.fish_modifier_id AS r_fish_modifier_id, r.fish_modifier_name AS r_fish_modifier_name, r.fish_modifier_rarity AS r_fish_modifier_rarity
         FROM trades t
         LEFT JOIN caught_fishes o ON o.id = t.offered_fish_id
         LEFT JOIN caught_fishes r ON r.id = t.requested_fish_id

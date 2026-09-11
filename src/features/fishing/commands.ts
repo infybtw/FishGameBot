@@ -131,6 +131,9 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
       sizeCm: fish.sizeCm,
       weightG: fish.weightG,
       price: fish.price,
+      fishModifierId: fish.modifier?.id ?? null,
+      fishModifierName: fish.modifier?.name ?? null,
+      fishModifierRarity: fish.modifier?.rarity ?? null,
     });
     log.info(
       {

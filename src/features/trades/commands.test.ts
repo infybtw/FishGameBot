@@ -154,6 +154,9 @@ type FakeFish = {
   price: number;
   state: "available" | "sold" | "spent" | "removed";
   ownerName: string;
+  fishModifierId?: string | null;
+  fishModifierName?: string | null;
+  fishModifierRarity?: string | null;
 };
 
 type FakeFisher = { userId: number; chatId: number; firstName: string; balance: number };
@@ -179,6 +182,9 @@ function createFakeRepo(): FakeRepoState {
     rarity: fish.rarity,
     point: fish.point,
     price: fish.price,
+    fishModifierId: fish.fishModifierId ?? null,
+    fishModifierName: fish.fishModifierName ?? null,
+    fishModifierRarity: fish.fishModifierRarity ?? null,
   });
 
   const repo = {
@@ -204,7 +210,18 @@ function createFakeRepo(): FakeRepoState {
       return {
         fishes: available
           .slice((currentPage - 1) * pageSize, currentPage * pageSize)
-          .map(({ id, name, rarity, point, sizeCm, weightG, price }) => ({ id, name, rarity, point, sizeCm, weightG, price })),
+          .map(({ id, name, rarity, point, sizeCm, weightG, price, fishModifierId, fishModifierName, fishModifierRarity }) => ({
+            id,
+            name,
+            rarity,
+            point,
+            sizeCm,
+            weightG,
+            price,
+            fishModifierId: fishModifierId ?? null,
+            fishModifierName: fishModifierName ?? null,
+            fishModifierRarity: fishModifierRarity ?? null,
+          })),
         page: currentPage,
         totalCount,
         totalValue,
