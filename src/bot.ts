@@ -26,9 +26,12 @@ export function trackBotMessages(repo: Repo) {
     const result = await prev(method, payload, signal);
     const chatId = (payload as { chat_id?: unknown }).chat_id;
     // API transformers receive Telegram's raw { ok, result } envelope.
-    const message = (result as { result?: { message_id?: unknown; text?: unknown; caption?: unknown } }).result;
+    const message = (result as {
+      result?: { message_id?: unknown; text?: unknown; caption?: unknown; from?: { id?: unknown } };
+    }).result;
     const messageId = message?.message_id;
     if (typeof chatId !== "number" || typeof messageId !== "number") return result;
+    const senderUserId = typeof message?.from?.id === "number" ? message.from.id : null;
     const payloadMessage = payload as { text?: unknown; caption?: unknown };
     const messageText =
       typeof message?.text === "string"
@@ -42,7 +45,7 @@ export function trackBotMessages(repo: Repo) {
               : null;
 
     try {
-      await repo.trackChatMessage(chatId, messageId, true, false, messageText);
+      await repo.trackChatMessage(chatId, messageId, senderUserId, true, false, messageText);
     } catch (err) {
       // Tracking must never turn a successfully delivered bot response into an error.
       log.error({ err, chatId, messageId }, "Failed to track bot message");
@@ -85,6 +88,7 @@ export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess)
         await repo.trackChatMessage(
           ctx.chat.id,
           message.message_id,
+          ctx.from?.id ?? null,
           false,
           typeof message.text === "string" && isCommandForThisBot(ctx, message.text),
           getMessageText(message),

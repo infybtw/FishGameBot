@@ -188,6 +188,7 @@ const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS chat_messages (
     chat_id BIGINT NOT NULL,
     message_id INTEGER NOT NULL,
+    sender_user_id BIGINT,
     is_bot BOOLEAN NOT NULL DEFAULT FALSE,
     is_command BOOLEAN NOT NULL DEFAULT FALSE,
     message_text TEXT,
@@ -195,6 +196,7 @@ const SCHEMA_STATEMENTS = [
     deleted_at TIMESTAMPTZ,
     PRIMARY KEY (chat_id, message_id)
   )`,
+  `ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS sender_user_id BIGINT`,
   `ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS message_text TEXT`,
   `CREATE INDEX IF NOT EXISTS chat_messages_active_cleanup_idx
     ON chat_messages (chat_id, sent_at DESC, message_id DESC)
@@ -321,6 +323,7 @@ export type Repo = {
   trackChatMessage(
     chatId: number,
     messageId: number,
+    senderUserId: number | null,
     isBot: boolean,
     isCommand: boolean,
     messageText: string | null,
@@ -688,10 +691,11 @@ export function createRepo(sql: SQL): Repo {
       await sql`UPDATE fishing_nets SET ready_notified_at = ${notifiedAt}
         WHERE user_id = ${userId} AND chat_id = ${chatId}`;
     },
-    async trackChatMessage(chatId, messageId, isBot, isCommand, messageText): Promise<void> {
-      await sql`INSERT INTO chat_messages (chat_id, message_id, is_bot, is_command, message_text)
-        VALUES (${chatId}, ${messageId}, ${isBot}, ${isCommand}, ${messageText})
+    async trackChatMessage(chatId, messageId, senderUserId, isBot, isCommand, messageText): Promise<void> {
+      await sql`INSERT INTO chat_messages (chat_id, message_id, sender_user_id, is_bot, is_command, message_text)
+        VALUES (${chatId}, ${messageId}, ${senderUserId}, ${isBot}, ${isCommand}, ${messageText})
         ON CONFLICT (chat_id, message_id) DO UPDATE SET
+          sender_user_id = EXCLUDED.sender_user_id,
           is_bot = EXCLUDED.is_bot,
           is_command = EXCLUDED.is_command,
           message_text = EXCLUDED.message_text`;
