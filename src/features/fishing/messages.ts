@@ -6,11 +6,14 @@ import type { CaughtFish } from "./generator.ts";
 import { RARITY_WEIGHTS, type Catalog } from "./catalog.ts";
 
 export function catchCard(fish: CaughtFish): string {
+  const modifierLine =
+    fish.modifier === null ? "" : `<b>Модификатор:</b> ${escapeHtml(fish.modifier.name)} (${escapeHtml(fish.modifier.rarity)})\n`;
   return (
     `${escapeHtml(fish.catcherFirstName)}\n` +
     `🌟 Удача! Вы смогли вытянуть Рыбу🌟\n` +
     `<b>Имя:</b> ${escapeHtml(fish.name)} \n` +
     `<b>Редкость:</b> ${escapeHtml(fish.rarity)}\n` +
+    modifierLine +
     `<b>Вес:</b> ${round2(fish.weightG / 1000)}кг\n` +
     `<b>Размер:</b> ${fish.sizeCm}см\n` +
     `\n` +

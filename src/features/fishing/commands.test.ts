@@ -739,3 +739,58 @@ test("/fish golden_scales curse multiplies only the catcher's chat balance, not 
 
   nowSpy.mockRestore();
 });
+
+test("/fish records the rolled modifier, shows it on the card, and stores its displayed values", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, fishModifierDropChance: 100 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  // Catch, rarity point, template, beta size tail, then the modifier drop
+  // (always at 100%) and selection (62 lands on the golden band).
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS, 0, 0.62]);
+
+  await bot.handleUpdate(commandUpdate({ updateId: 307, text: "/fish", from: PLAYER }));
+
+  expect(repo.catches).toHaveLength(1);
+  expect(repo.catches[0]).toMatchObject({
+    fishName: "Окунь",
+    fishModifierId: "golden",
+    fishModifierName: "Золотая",
+    fishModifierRarity: "Редкий",
+  });
+  expect(sentTexts).toHaveLength(1);
+  expect(sentTexts[0]).toContain("<b>Модификатор:</b> Золотая (Редкий)");
+  expect(sentTexts[0]).toContain("<b>Цена:</b> 355.25рублей");
+});
+
+test("/fish leaves no modifier trace for an unmodified catch", async () => {
+  setCatalog(FULL_CATALOG);
+  const { bot, sentTexts, repo } = createTestBot();
+  // The modifier roll is skipped entirely at 0%, so the tail stays unused.
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS]);
+
+  await bot.handleUpdate(commandUpdate({ updateId: 308, text: "/fish", from: PLAYER }));
+
+  expect(repo.catches).toHaveLength(1);
+  expect(repo.catches[0]).toMatchObject({
+    fishModifierId: null,
+    fishModifierName: null,
+    fishModifierRarity: null,
+  });
+  expect(sentTexts[0]).toContain("<b>Имя:</b> Окунь");
+  expect(sentTexts[0]).not.toContain("Модификатор");
+});
+
+test("/fakefish shows a modifier by the usual rules without storing anything", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, fishModifierDropChance: 100 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  mockRandom([0, 0, ...SIZE_RANDOMS, 0, 0.62]);
+
+  await bot.handleUpdate(commandUpdate({ updateId: 309, text: "/fakefish", from: ADMIN }));
+
+  expect(sentTexts).toHaveLength(1);
+  expect(sentTexts[0]).toContain("<b>Имя:</b> Акула");
+  expect(sentTexts[0]).toContain("<b>Модификатор:</b> Золотая (Редкий)");
+  expect(repo.calls).toEqual([]);
+  expect(repo.catches).toHaveLength(0);
+});

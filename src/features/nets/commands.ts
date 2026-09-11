@@ -1,5 +1,6 @@
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import type { BotContext } from "../../bot.ts";
+import type { Config } from "../../config.ts";
 import { isGroup } from "../../guards.ts";
 import type { CatchInsert, Repo } from "../../db/index.ts";
 import { randomInt } from "../../lib/random.ts";
@@ -8,6 +9,7 @@ import { log } from "../../logger.ts";
 import { getCatalog, type Catalog } from "../fishing/catalog.ts";
 import { formatRemaining } from "../fishing/cooldown.ts";
 import { generateCatch, rollPoint, type CaughtFish } from "../fishing/generator.ts";
+import { modifierLabel } from "../fishing/modifiers.ts";
 import { buildNetCallbackData, parseNetCallbackData } from "./callback-data.ts";
 import { NET_DURATION_SECONDS, NET_RARITY_WEIGHTS } from "./net.ts";
 
@@ -56,15 +58,18 @@ async function renderScreen(repo: Repo, ownerUserId: number, chatId: number, not
 }
 
 function collectList(catches: readonly CaughtFish[]): string {
-  return catches.map((fish) => `${escapeHtml(fish.name)} (${escapeHtml(fish.rarity)})`).join(", ");
+  return catches
+    .map((fish) => `${escapeHtml(modifierLabel(fish.name, fish.modifier?.name ?? null))} (${escapeHtml(fish.rarity)})`)
+    .join(", ");
 }
 
 /** Net catches ignore rods, cooldowns, chance-ups, success chance, and curses. */
-function generateNetCatches(catalog: Catalog, catcherFirstName: string): CaughtFish[] {
+function generateNetCatches(catalog: Catalog, catcherFirstName: string, modifierDropChance: number): CaughtFish[] {
   const count = randomInt(1, 6);
   const catches: CaughtFish[] = [];
   for (let i = 0; i < count; i++) {
-    catches.push(generateCatch(catalog, rollPoint(catalog, 0, Math.random, NET_RARITY_WEIGHTS), catcherFirstName));
+    // Every issued catch rolls its own independent modifier.
+    catches.push(generateCatch(catalog, rollPoint(catalog, 0, Math.random, NET_RARITY_WEIGHTS), catcherFirstName, modifierDropChance));
   }
   return catches;
 }
@@ -95,7 +100,7 @@ async function editScreen(ctx: Context, screen: Screen): Promise<void> {
   await ctx.editEphemeralMessageText(screen.text, { reply_markup: screen.keyboard });
 }
 
-export function registerNetCommands(bot: Bot<BotContext>, repo: Repo): void {
+export function registerNetCommands(bot: Bot<BotContext>, cfg: Config, repo: Repo): void {
   bot.command("net", async (ctx) => {
     if (!isGroup(ctx) || ctx.from === undefined) {
       log.debug({ userId: ctx.from?.id, chatId: ctx.chat?.id }, "/net ignored outside groups");
@@ -167,7 +172,7 @@ export function registerNetCommands(bot: Bot<BotContext>, repo: Repo): void {
 
     let catches: CaughtFish[];
     try {
-      catches = generateNetCatches(getCatalog(), firstName);
+      catches = generateNetCatches(getCatalog(), firstName, cfg.fishModifierDropChance);
     } catch {
       // No template carries a positive net weight: keep the net cast.
       log.warn({ userId, chatId }, "Net collection blocked: no eligible catalog templates");
@@ -190,7 +195,14 @@ export function registerNetCommands(bot: Bot<BotContext>, repo: Repo): void {
     }
 
     log.info(
-      { userId, chatId, castAt: result.castAt, count: catches.length, points: catches.map((fish) => fish.point) },
+      {
+        userId,
+        chatId,
+        castAt: result.castAt,
+        count: catches.length,
+        points: catches.map((fish) => fish.point),
+        fishModifiers: catches.map((fish) => fish.modifier?.id ?? null),
+      },
       "Fishing net collected",
     );
     await editScreen(ctx, await renderScreen(repo, userId, chatId, `Улов из сети: ${collectList(catches)}.`));

@@ -1,5 +1,6 @@
 import type { InventoryPage, RarityInventorySummary } from "../../db/index.ts";
 import { escapeHtml, round2 } from "../../lib/format.ts";
+import { modifierLabel } from "../fishing/modifiers.ts";
 import { getRod, type RodDefinition } from "./rods.ts";
 
 export function money(value: number): string {
@@ -38,7 +39,7 @@ export function inventoryCard(inventory: InventoryPage): string {
   if (inventory.fishes.length === 0) lines.push("\nИнвентарь пуст.");
   for (const fish of inventory.fishes) {
     lines.push(
-      `\n#${fish.id} <b>${escapeHtml(fish.name)}</b>`,
+      `\n#${fish.id} <b>${escapeHtml(modifierLabel(fish.name, fish.fishModifierName))}</b>`,
       `${escapeHtml(fish.rarity)} · ${round2(fish.weightG / 1000)} кг · ${round2(fish.sizeCm)} см`,
       `Цена продажи: ${money(fish.price)}`,
     );

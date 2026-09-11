@@ -494,6 +494,46 @@ describe("fish-for-fish builder", () => {
     expect(answerCalls(apiCalls)[0]!.payload.text).toBe("Предложение отправлено.");
   });
 
+  test("a modified fish keeps its label in lists, buttons, and the published offer", async () => {
+    const { repo, fishers, fishes } = createFakeRepo();
+    seedFisher(fishers, TARGET);
+    seedFish(fishes, 1, INITIATOR, "Окунь", 100);
+    Object.assign(fishes.get(1)!, { fishModifierId: "golden", fishModifierName: "Золотая", fishModifierRarity: "Редкий" });
+    seedFish(fishes, 2, TARGET, "Щука", 200);
+    const { bot, apiCalls } = createTestBot(repo);
+
+    await bot.handleUpdate(commandUpdate({ updateId: 1, text: "/trade", replyTo: TARGET }));
+    await bot.handleUpdate(
+      builderCallback({
+        updateId: 2,
+        ownerId: INITIATOR.id,
+        targetId: TARGET.id,
+        pressingId: INITIATOR.id,
+        data: buildMenuCallbackData(INITIATOR.id, TARGET.id, { kind: "initiatorFish", page: 1 }),
+      }),
+    );
+
+    const listEdit = editCalls(apiCalls)[0]!;
+    expect(String(listEdit.payload.text)).toContain("#1 <b>Золотая Окунь</b> — 100 ₽");
+    const listMarkup = listEdit.payload.reply_markup as InlineMarkup;
+    expect(listMarkup.inline_keyboard.flat().map((button) => button.text)).toContain("#1 Золотая Окунь");
+
+    apiCalls.length = 0;
+    await bot.handleUpdate(
+      builderCallback({
+        updateId: 3,
+        ownerId: INITIATOR.id,
+        targetId: TARGET.id,
+        pressingId: INITIATOR.id,
+        data: buildMenuCallbackData(INITIATOR.id, TARGET.id, { kind: "pickTargetFish", offeredFishId: 1, fishId: 2 }),
+      }),
+    );
+
+    const text = String(sendCalls(apiCalls)[0]!.payload.text);
+    expect(text).toContain("рыбу <b>Золотая Окунь</b> (Обычная · Золотая (Редкий)) — 100 ₽");
+    expect(text).toContain("рыбу <b>Щука</b> (Обычная) — 200 ₽");
+  });
+
   test("shows an empty screen when the initiator has no available fish", async () => {
     const { repo, fishers, fishes } = createFakeRepo();
     seedFisher(fishers, TARGET);
