@@ -243,14 +243,14 @@ function createFakeRepo(): FakeRepo {
     async markFishingNetReadyNotified() {
       return unexpected("markFishingNetReadyNotified");
     },
-    async trackBotMessage() {
-      return unexpected("trackBotMessage");
+    async trackChatMessage() {
+      return unexpected("trackChatMessage");
     },
-    async listRecentBotMessageIds() {
-      return unexpected("listRecentBotMessageIds");
+    async listRecentClearableMessageIds() {
+      return unexpected("listRecentClearableMessageIds");
     },
-    async markBotMessageDeleted() {
-      return unexpected("markBotMessageDeleted");
+    async markChatMessageDeleted() {
+      return unexpected("markChatMessageDeleted");
     },
     async createTrade() {
       return unexpected("createTrade");

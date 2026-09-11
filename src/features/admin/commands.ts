@@ -22,7 +22,7 @@ const IMPORT_INVITE =
 const IMPORT_FAIL = "Во время импорта рыбы произошла критическая ошибка";
 const EXPORT_FAIL = "Произошла ошибка";
 const CCLEAR_USAGE = "Использование: /cclear или /cclear <количество>";
-const CCLEAR_OK = (deleted: number) => `Удалено сообщений бота: ${deleted}`;
+const CCLEAR_OK = (deleted: number) => `Удалено сообщений и команд: ${deleted}`;
 
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -242,18 +242,18 @@ export function registerAdminCommands(
       return;
     }
 
-    const messageIds = await repo.listRecentBotMessageIds(ctx.chat.id, limit);
+    const messageIds = await repo.listRecentClearableMessageIds(ctx.chat.id, limit);
     let deleted = 0;
     for (const messageId of messageIds) {
       try {
         await ctx.api.deleteMessage(ctx.chat.id, messageId);
-        await repo.markBotMessageDeleted(ctx.chat.id, messageId);
+        await repo.markChatMessageDeleted(ctx.chat.id, messageId);
         deleted += 1;
       } catch (err) {
-        log.warn({ err, chatId: ctx.chat.id, messageId }, "Failed to delete bot message");
+        log.warn({ err, chatId: ctx.chat.id, messageId }, "Failed to delete tracked message");
       }
     }
-    log.info({ chatId: ctx.chat.id, requested: limit ?? "all", deleted }, "Bot messages cleared by admin");
+    log.info({ chatId: ctx.chat.id, requested: limit ?? "all", deleted }, "Bot messages and commands cleared by admin");
     await ctx.reply(CCLEAR_OK(deleted));
   });
 

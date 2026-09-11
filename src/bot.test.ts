@@ -4,10 +4,16 @@ import { trackBotMessages } from "./bot.ts";
 import type { Repo } from "./db/index.ts";
 
 test("records successful outgoing bot messages", async () => {
-  const tracked: Array<[number, number]> = [];
+  const tracked: Array<[number, number, boolean, boolean, string | null]> = [];
   const repo = {
-    async trackBotMessage(chatId: number, messageId: number) {
-      tracked.push([chatId, messageId]);
+    async trackChatMessage(
+      chatId: number,
+      messageId: number,
+      isBot: boolean,
+      isCommand: boolean,
+      messageText: string | null,
+    ) {
+      tracked.push([chatId, messageId, isBot, isCommand, messageText]);
     },
   } as unknown as Repo;
   const bot = new Bot("0:test");
@@ -19,5 +25,5 @@ test("records successful outgoing bot messages", async () => {
 
   await bot.api.sendMessage(-100, "Тест");
 
-  expect(tracked).toEqual([[-100, 42]]);
+  expect(tracked).toEqual([[-100, 42, true, false, "Тест"]]);
 });

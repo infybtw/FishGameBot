@@ -24,21 +24,42 @@ export function trackBotMessages(repo: Repo) {
     signal?: AbortSignal,
   ): Promise<T> => {
     const result = await prev(method, payload, signal);
-    if (method !== "sendMessage" && method !== "sendDocument") return result;
-
     const chatId = (payload as { chat_id?: unknown }).chat_id;
     // API transformers receive Telegram's raw { ok, result } envelope.
-    const messageId = ((result as { result?: { message_id?: unknown } }).result)?.message_id;
+    const message = (result as { result?: { message_id?: unknown; text?: unknown; caption?: unknown } }).result;
+    const messageId = message?.message_id;
     if (typeof chatId !== "number" || typeof messageId !== "number") return result;
+    const payloadMessage = payload as { text?: unknown; caption?: unknown };
+    const messageText =
+      typeof message?.text === "string"
+        ? message.text
+        : typeof message?.caption === "string"
+          ? message.caption
+          : typeof payloadMessage.text === "string"
+            ? payloadMessage.text
+            : typeof payloadMessage.caption === "string"
+              ? payloadMessage.caption
+              : null;
 
     try {
-      await repo.trackBotMessage(chatId, messageId);
+      await repo.trackChatMessage(chatId, messageId, true, false, messageText);
     } catch (err) {
       // Tracking must never turn a successfully delivered bot response into an error.
       log.error({ err, chatId, messageId }, "Failed to track bot message");
     }
     return result;
   };
+}
+
+function isCommandForThisBot(ctx: BotContext, text: string): boolean {
+  const match = /^\/[^\s@]+(?:@([a-zA-Z0-9_]+))?/.exec(text);
+  if (match === null) return false;
+  const targetUsername = match[1];
+  return targetUsername === undefined || targetUsername.toLowerCase() === ctx.me.username?.toLowerCase();
+}
+
+function getMessageText(message: { text?: unknown; caption?: unknown }): string | null {
+  return typeof message.text === "string" ? message.text : typeof message.caption === "string" ? message.caption : null;
 }
 
 export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess): Bot<BotContext> {
@@ -53,12 +74,25 @@ export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess)
   bot.api.config.use(trackBotMessages(repo) as never);
 
   // Every incoming update gets a line; commands are worth info, the rest debug.
-  bot.use((ctx, next) => {
+  bot.use(async (ctx, next) => {
     const message = ctx.message ?? ctx.editedMessage;
     const command =
       typeof message?.text === "string" && message.text.startsWith("/")
         ? message.text.slice(1).split(/[ @\n]/)[0]
         : undefined;
+    if (message !== undefined && ctx.chat !== undefined) {
+      try {
+        await repo.trackChatMessage(
+          ctx.chat.id,
+          message.message_id,
+          false,
+          typeof message.text === "string" && isCommandForThisBot(ctx, message.text),
+          getMessageText(message),
+        );
+      } catch (err) {
+        log.error({ err, chatId: ctx.chat.id, messageId: message.message_id }, "Failed to track chat message");
+      }
+    }
     if (command !== undefined) {
       log.info({ command, userId: ctx.from?.id, chatId: ctx.chat?.id }, "Command received");
     } else {

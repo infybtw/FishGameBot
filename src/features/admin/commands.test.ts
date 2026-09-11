@@ -43,11 +43,11 @@ function createBot(messageIds: number[]): {
   const replies: string[] = [];
   const forgotten: number[] = [];
   const repo = {
-    async listRecentBotMessageIds(_chatId: number, limit?: number) {
+    async listRecentClearableMessageIds(_chatId: number, limit?: number) {
       requested.push(limit);
       return messageIds;
     },
-    async markBotMessageDeleted(_chatId: number, messageId: number) {
+    async markChatMessageDeleted(_chatId: number, messageId: number) {
       forgotten.push(messageId);
     },
   } as unknown as Repo;
@@ -93,7 +93,7 @@ describe("/cclear", () => {
 
     expect(requested).toEqual([undefined]);
     expect(deleted).toEqual([30, 29, 28]);
-    expect(replies).toEqual(["Удалено сообщений бота: 3"]);
+    expect(replies).toEqual(["Удалено сообщений и команд: 3"]);
   });
 
   test("passes the requested positive limit to the repository", async () => {
