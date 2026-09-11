@@ -1,6 +1,7 @@
 import { round2 } from "../../lib/format.ts";
 import { betaSample, randomInt } from "../../lib/random.ts";
 import { CHANCE_UP_RARITY_WEIGHTS, RARITY_WEIGHTS, type Catalog, type FishTemplate } from "./catalog.ts";
+import { FISH_MODIFIERS, type FishModifier } from "./modifiers.ts";
 
 export type CaughtFish = {
   name: string;
@@ -9,6 +10,7 @@ export type CaughtFish = {
   sizeCm: number;
   weightG: number;
   price: number;
+  modifier: FishModifier | null;
   catcherFirstName: string;
 };
 
@@ -64,12 +66,41 @@ export function generatePrice(point: number, weightG: number): number {
   return round2(0.05 * point ** 2 * weightG + 200 * point);
 }
 
-/** Builds the complete catch for a known rarity point; throws when its group is empty. */
-export function generateCatch(catalog: Catalog, point: number, catcherFirstName: string): CaughtFish {
+/**
+ * Separate modifier roll after a fish has been picked: `dropChance: 0` never
+ * draws or consumes randomness; otherwise an exclusive percentage roll decides
+ * the drop and a second weighted roll picks one of `FISH_MODIFIERS`.
+ */
+export function rollModifier(dropChance: number, random: () => number = Math.random): FishModifier | null {
+  if (dropChance <= 0) return null;
+  if (random() * 100 >= dropChance) return null;
+  const total = FISH_MODIFIERS.reduce((sum, modifier) => sum + modifier.weight, 0);
+  let roll = random() * total;
+  for (const modifier of FISH_MODIFIERS) {
+    roll -= modifier.weight;
+    if (roll < 0) return modifier;
+  }
+  return FISH_MODIFIERS[FISH_MODIFIERS.length - 1]!;
+}
+
+/**
+ * Builds the complete catch for a known rarity point; throws when its group is
+ * empty. A won modifier roll scales the size first, then the weight is
+ * recomputed from that size and the price from that weight, with every stored
+ * value rounded once at the end.
+ */
+export function generateCatch(
+  catalog: Catalog,
+  point: number,
+  catcherFirstName: string,
+  modifierDropChance = 0,
+): CaughtFish {
   const template = pickTemplate(catalog, point);
-  const sizeCm = generateSize(point);
+  const baseSizeCm = generateSize(point);
+  const modifier = rollModifier(modifierDropChance);
+  const sizeCm = round2(baseSizeCm * (modifier?.sizeMultiplier ?? 1));
   const weightG = generateWeight(sizeCm);
-  const price = generatePrice(point, weightG);
+  const price = round2(generatePrice(point, weightG) * (modifier?.priceMultiplier ?? 1));
   return {
     name: template.name,
     rarity: template.rarity,
@@ -77,6 +108,7 @@ export function generateCatch(catalog: Catalog, point: number, catcherFirstName:
     sizeCm,
     weightG,
     price,
+    modifier,
     catcherFirstName,
   };
 }
@@ -86,27 +118,38 @@ export function tryCatch(
   catcherFirstName: string,
   successChance: number,
   rarityStepBonus: number,
+  modifierDropChance = 0,
 ): CaughtFish | null {
   if (!didCatch(successChance)) return null;
-  return generateCatch(catalog, rollPoint(catalog, rarityStepBonus), catcherFirstName);
+  return generateCatch(catalog, rollPoint(catalog, rarityStepBonus), catcherFirstName, modifierDropChance);
 }
 
 /**
  * Guaranteed chance-up catch: rolls only with `CHANCE_UP_RARITY_WEIGHTS`,
  * so rarity point 1 is unreachable and only boosted points can be selected.
  */
-export function boostedCatch(catalog: Catalog, catcherFirstName: string, rarityStepBonus = 0): CaughtFish {
-  return generateCatch(catalog, rollPoint(catalog, rarityStepBonus, Math.random, CHANCE_UP_RARITY_WEIGHTS), catcherFirstName);
+export function boostedCatch(
+  catalog: Catalog,
+  catcherFirstName: string,
+  rarityStepBonus = 0,
+  modifierDropChance = 0,
+): CaughtFish {
+  return generateCatch(
+    catalog,
+    rollPoint(catalog, rarityStepBonus, Math.random, CHANCE_UP_RARITY_WEIGHTS),
+    catcherFirstName,
+    modifierDropChance,
+  );
 }
 
 /**
  * Display-only fake catch: rarity point 5 or 6, each non-empty group equally
  * likely; throws when neither point has a catalog template.
  */
-export function fakeFishCatch(catalog: Catalog, catcherFirstName: string): CaughtFish {
+export function fakeFishCatch(catalog: Catalog, catcherFirstName: string, modifierDropChance = 0): CaughtFish {
   const points = [5, 6].filter((point) => (catalog[point - 1]?.length ?? 0) > 0);
   if (points.length === 0) {
     throw new Error("No fish templates for rarity point 5 or 6");
   }
-  return generateCatch(catalog, points[randomInt(0, points.length - 1)]!, catcherFirstName);
+  return generateCatch(catalog, points[randomInt(0, points.length - 1)]!, catcherFirstName, modifierDropChance);
 }

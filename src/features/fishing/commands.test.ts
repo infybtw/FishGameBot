@@ -16,6 +16,7 @@ const CFG: Config = {
   catchSuccessChance: 50,
   catchDelaySeconds: 0,
   curseDropChance: 0,
+  fishModifierDropChance: 0,
   databaseUrl: "postgres://localhost/fishbot_test",
 };
 

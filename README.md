@@ -9,6 +9,7 @@ The bot creates its PostgreSQL schema on startup and seeds a default fish catalo
 - Group fishing with a configurable success chance and per-user, per-chat cooldown
 - Per-chat balances, catch history, player statistics, and leaderboard
 - Default catalog with multiple rarity tiers
+- Optional fish modifiers that boost a caught fish's size, weight, and price and stay with it through storage, selling, and trading
 - Admin commands to add, remove, import, export, and reload fish templates
 - PostgreSQL persistence with automatic schema creation
 - Docker Compose setup for the bot, PostgreSQL, and Adminer
@@ -134,6 +135,7 @@ bun run start
 | `CATCH_SUCCESS_CHANCE` | Yes for host runs | `50` in Compose | Integer from `0` to `100`. |
 | `CATCH_DELAY` | Yes for host runs | `3600` in Compose | Non-negative cooldown in seconds, scoped to each user and chat. |
 | `CURSE_DROP_CHANCE` | Yes for host runs | `20` in Compose | Integer from 0 to 100. Chance to apply one curse after a successful catch. |
+| `FISH_MODIFIER_DROP_CHANCE` | No | `12` | Integer from 0 to 100. Chance that a successful catch (including net fish) carries a modifier. |
 | `DATABASE_URL` | No | `postgres://localhost:5432/fishbot` | PostgreSQL connection string. The provided host-development value includes the Compose credentials. |
 | `LOG_LEVEL` | No | `info` | One of `debug`, `info`, `warn`, or `error`. |
 | `POSTGRES_PASSWORD` | Docker Compose only | `testpass` | Password shared by the Compose PostgreSQL and bot services. Use a strong value outside local development. |

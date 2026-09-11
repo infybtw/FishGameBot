@@ -13,6 +13,7 @@ const cfg: Config = {
   catchSuccessChance: 50,
   catchDelaySeconds: 0,
   curseDropChance: 0,
+  fishModifierDropChance: 0,
   databaseUrl: "postgres://example/fishbot_test",
 };
 
