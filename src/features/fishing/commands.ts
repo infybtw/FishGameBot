@@ -250,7 +250,7 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     let fishCount = 0;
     for (const group of catalog) fishCount += group?.length ?? 0;
     log.debug({ chatId: ctx.chat.id, fishCount }, "Fish catalog requested");
-    await ctx.reply(fishCatalogMessage(catalog));
+    await ctx.reply(fishCatalogMessage(catalog, cfg.fishModifierDropChance));
   });
 
   bot.command("cr", async (ctx) => {

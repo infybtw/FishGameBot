@@ -4,6 +4,7 @@ import { formatRemaining } from "./cooldown.ts";
 import { CURSES } from "./curses.ts";
 import type { CaughtFish } from "./generator.ts";
 import { RARITY_WEIGHTS, type Catalog } from "./catalog.ts";
+import { FISH_MODIFIERS } from "./modifiers.ts";
 
 export function catchCard(fish: CaughtFish): string {
   const modifierLine =
@@ -91,7 +92,7 @@ export function topFishers(rows: TopFisherRow[]): string {
   );
 }
 
-export function fishCatalogMessage(catalog: Catalog): string {
+export function fishCatalogMessage(catalog: Catalog, modifierDropChance: number): string {
   const groups: Array<{ fishes: NonNullable<Catalog[number]>; weight: number }> = [];
   let totalWeight = 0;
   for (let point = 1; point <= catalog.length; point++) {
@@ -109,7 +110,19 @@ export function fishCatalogMessage(catalog: Catalog): string {
       (fish) => `• <b>${escapeHtml(fish.name)}</b> — ${escapeHtml(fish.rarity)} — ${chance}%`,
     );
   });
-  return `🐟 <b>Список рыб</b>\n<i>Шанс указан среди успешных уловов.</i>\n\n${rows.join("\n")}`;
+  const modifierRows = FISH_MODIFIERS.map(
+    (modifier) =>
+      `• <b>${escapeHtml(modifier.name)}</b> — ${escapeHtml(modifier.rarity)} — ${round2(modifier.weight)}% — ` +
+      `размер ×${round2(modifier.sizeMultiplier)} · цена ×${round2(modifier.priceMultiplier)}`,
+  );
+  return (
+    `🐟 <b>Список рыб</b>\n` +
+    `<i>Шанс указан среди успешных уловов.</i>\n\n` +
+    `${rows.join("\n")}\n\n` +
+    `✨ <b>Модификаторы</b> — ${round2(modifierDropChance)}% уловов\n` +
+    `<i>Шанс указан среди модифицированных рыб.</i>\n\n` +
+    modifierRows.join("\n")
+  );
 }
 
 const RARITY_LABELS = ["Обычных", "Редких", "Эпических", "Легендарных", "Мифических", "Радужных"];

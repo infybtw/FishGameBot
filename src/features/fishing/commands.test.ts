@@ -331,7 +331,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-test("/fishes lists escaped fish names, rarities, and normalized catch chances in a group", async () => {
+test("/fishes lists escaped fish names, rarities, normalized catch chances, and modifier odds in a group", async () => {
   setCatalog([
     [
       { name: "Окунь & <лещ>", rarity: "Обычный", point: 1 },
@@ -340,7 +340,7 @@ test("/fishes lists escaped fish names, rarities, and normalized catch chances i
     [],
     [{ name: "Сом", rarity: "Эпический", point: 3 }],
   ]);
-  const { bot, sentTexts } = createTestBot();
+  const { bot, sentTexts } = createTestBot({ ...CFG, fishModifierDropChance: 12 });
 
   await bot.handleUpdate(commandUpdate({ updateId: 1, text: "/fishes" }));
 
@@ -349,7 +349,17 @@ test("/fishes lists escaped fish names, rarities, and normalized catch chances i
       "<i>Шанс указан среди успешных уловов.</i>\n\n" +
       "• <b>Окунь &amp; &lt;лещ&gt;</b> — Обычный — 46.15%\n" +
       "• <b>Карась</b> — Обычный — 46.15%\n" +
-      "• <b>Сом</b> — Эпический — 7.69%",
+      "• <b>Сом</b> — Эпический — 7.69%\n\n" +
+      "✨ <b>Модификаторы</b> — 12% уловов\n" +
+      "<i>Шанс указан среди модифицированных рыб.</i>\n\n" +
+      "• <b>Упитанная</b> — Обычный — 37% — размер ×1.05 · цена ×1.1\n" +
+      "• <b>Серебряная</b> — Необычный — 25% — размер ×1.1 · цена ×1.25\n" +
+      "• <b>Золотая</b> — Редкий — 15% — размер ×1.15 · цена ×1.6\n" +
+      "• <b>Электрическая</b> — Редкий — 9% — размер ×1.18 · цена ×1.85\n" +
+      "• <b>Радужная</b> — Эпический — 6% — размер ×1.25 · цена ×2.5\n" +
+      "• <b>Лунная</b> — Эпический — 4% — размер ×1.3 · цена ×3.25\n" +
+      "• <b>Кристальная</b> — Легендарный — 2.5% — размер ×1.4 · цена ×4.5\n" +
+      "• <b>Бездна</b> — Мифический — 1.5% — размер ×1.55 · цена ×7",
   ]);
   expect(getCatalog()).toHaveLength(3);
 });
