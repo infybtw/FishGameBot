@@ -1,11 +1,15 @@
 /**
  * Callback wire format for the personal fish upgrade menu.
  *
- * The menu is ephemeral and owner-bound: every payload carries the menu
- * owner encoded in base 36 plus the flow context (a list page or a picked
- * fish ID), staying within Telegram's 64-byte callback_data limit.
+ * The menu lives in a public group message, but it is owner-bound: every
+ * payload carries the menu owner encoded in base 36 plus the flow context
+ * (a list page or a fish ID), staying within Telegram's 64-byte
+ * callback_data limit. Only the owner's presses are accepted by the handler.
  */
-export type FishUpgradeAction = { kind: "list"; page: number } | { kind: "pick"; fishId: number };
+export type FishUpgradeAction =
+  | { kind: "list"; page: number }
+  | { kind: "confirm"; fishId: number }
+  | { kind: "apply"; fishId: number };
 
 export type ParsedFishUpgradeData = { ownerUserId: number; action: FishUpgradeAction };
 
@@ -37,22 +41,29 @@ export function buildFishUpgradeCallbackData(ownerUserId: number, action: FishUp
   switch (action.kind) {
     case "list":
       return assertPayload(`${prefix}:l:${encodeId(action.page)}`);
-    case "pick":
-      return assertPayload(`${prefix}:p:${encodeId(action.fishId)}`);
+    case "confirm":
+      return assertPayload(`${prefix}:c:${encodeId(action.fishId)}`);
+    case "apply":
+      return assertPayload(`${prefix}:a:${encodeId(action.fishId)}`);
   }
 }
 
-const PATTERN = new RegExp(`^${PREFIX}([0-9a-z]+):(l:([0-9a-z]+)|p:([0-9a-z]+))$`);
+const PATTERN = new RegExp(`^${PREFIX}([0-9a-z]+):(l:([0-9a-z]+)|c:([0-9a-z]+)|a:([0-9a-z]+))$`);
 
 export function parseFishUpgradeCallbackData(payload: string): ParsedFishUpgradeData | null {
   const match = PATTERN.exec(payload);
   if (match === null) return null;
   const ownerUserId = decodeId(match[1]);
   if (ownerUserId === null) return null;
-  if (match[2]!.startsWith("l:")) {
+  const verb = match[2]!;
+  if (verb.startsWith("l:")) {
     const page = decodeId(match[3]);
     return page === null ? null : { ownerUserId, action: { kind: "list", page } };
   }
-  const fishId = decodeId(match[4]);
-  return fishId === null ? null : { ownerUserId, action: { kind: "pick", fishId } };
+  if (verb.startsWith("c:")) {
+    const fishId = decodeId(match[4]);
+    return fishId === null ? null : { ownerUserId, action: { kind: "confirm", fishId } };
+  }
+  const fishId = decodeId(match[5]);
+  return fishId === null ? null : { ownerUserId, action: { kind: "apply", fishId } };
 }

@@ -4,7 +4,11 @@ import { buildFishUpgradeCallbackData, parseFishUpgradeCallbackData, type FishUp
 const OWNER_ID = 123_456_789;
 const MAX = Number.MAX_SAFE_INTEGER;
 
-const actions: FishUpgradeAction[] = [{ kind: "list", page: 1 }, { kind: "pick", fishId: 42 }];
+const actions: FishUpgradeAction[] = [
+  { kind: "list", page: 1 },
+  { kind: "confirm", fishId: 42 },
+  { kind: "apply", fishId: 42 },
+];
 
 describe("fish upgrade callback data", () => {
   test("round-trips every action within Telegram's callback_data limit", () => {
@@ -26,16 +30,18 @@ describe("fish upgrade callback data", () => {
   test("rejects malformed, unknown, and trailing-field payloads", () => {
     for (const payload of [
       "fup:0:l:1",
-      "fup:-1:p:1",
+      "fup:-1:c:1",
       "fup:1:l:0",
       "fup:1:l:-1",
       "fup:1:l:1.5",
-      "fup:1:p:0",
-      "fup:1:p:9007199254740992",
-      "fup:1:p:1g!",
+      "fup:1:c:0",
+      "fup:1:a:0",
+      "fup:1:a:9007199254740992",
+      "fup:1:p:1",
       "fup:1:x:1",
-      "fup:1:l:1:extra",
-      "fup:1:p",
+      "fup:1:a:1g!",
+      "fup:1:a:1:extra",
+      "fup:1:a",
       "fup:1",
       "fup:zz!,#:l:1",
       "fup",
@@ -52,8 +58,10 @@ describe("fish upgrade callback data", () => {
       [-1, { kind: "list", page: 1 }],
       [Number.MAX_SAFE_INTEGER + 1, { kind: "list", page: 1 }],
       [OWNER_ID, { kind: "list", page: 0 }],
-      [OWNER_ID, { kind: "pick", fishId: 0 }],
-      [OWNER_ID, { kind: "pick", fishId: -5 }],
+      [OWNER_ID, { kind: "confirm", fishId: 0 }],
+      [OWNER_ID, { kind: "confirm", fishId: -5 }],
+      [OWNER_ID, { kind: "apply", fishId: 0 }],
+      [OWNER_ID, { kind: "apply", fishId: Number.MAX_SAFE_INTEGER + 1 }],
     ] as const) {
       expect(() => buildFishUpgradeCallbackData(owner, action)).toThrow();
     }

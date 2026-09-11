@@ -41,6 +41,16 @@ export function upgradeTargetMissingCard(source: UpgradeFishSource): string {
   return `🎣 <b>Улучшение рыбы</b>\nВ каталоге нет рыб следующей редкости, поэтому рыба #${source.id} ${fishTitle(source)} улучшить нельзя.`;
 }
 
+export function upgradeConfirmCard(source: UpgradeFishSource, chance: number, targetRarity: string): string {
+  return [
+    "🎣 <b>Подтверждение улучшения</b>",
+    `Рыба: #${source.id} ${fishTitle(source)}`,
+    `Цель: ${escapeHtml(targetRarity)} (редкость ${source.point + 1})`,
+    `<b>Шанс успеха: ${chance}%</b>`,
+    "При неудаче рыба расходуется. Улучшить?",
+  ].join("\n");
+}
+
 export function upgradeSuccessCard(source: UpgradeFishSource, chance: number, created: UpgradedFishDraft): string {
   return [
     "⬆️ <b>Улучшение удалось!</b>",

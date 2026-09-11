@@ -18,6 +18,7 @@ import {
   FISH_UPGRADE_UNAVAILABLE,
   FISH_UPGRADE_UNAVAILABLE_ANSWER,
   fishButtonLabel,
+  upgradeConfirmCard,
   upgradeFailureCard,
   upgradeMaxRarityCard,
   upgradeMenuCard,
@@ -47,7 +48,7 @@ function listKeyboard(ownerUserId: number, inventory: InventoryPage): InlineKeyb
   const keyboard = new InlineKeyboard();
   inventory.fishes.forEach((fish, index) => {
     if (index > 0) keyboard.row();
-    keyboard.text(fishButtonLabel(fish), buildFishUpgradeCallbackData(ownerUserId, { kind: "pick", fishId: fish.id }));
+    keyboard.text(fishButtonLabel(fish), buildFishUpgradeCallbackData(ownerUserId, { kind: "confirm", fishId: fish.id }));
   });
   if (inventory.page > 1 || inventory.page * PAGE_SIZE < inventory.totalCount) {
     keyboard.row();
@@ -63,6 +64,30 @@ async function renderList(repo: Repo, ownerUserId: number, chatId: number, page:
   const inventory = await repo.getInventoryPage(ownerUserId, chatId, page, PAGE_SIZE);
   if (inventory.totalCount === 0) return { text: FISH_UPGRADE_EMPTY };
   return { text: upgradeMenuCard(inventory), keyboard: listKeyboard(ownerUserId, inventory) };
+}
+
+/**
+ * The menu is a public group message, but only the owner's presses carry a
+ * matching owner ID, so other players can watch yet never operate it.
+ */
+function confirmKeyboard(ownerUserId: number, fishId: number): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("🎣 Улучшить", buildFishUpgradeCallbackData(ownerUserId, { kind: "apply", fishId }))
+    .row()
+    .text("← К списку", buildFishUpgradeCallbackData(ownerUserId, { kind: "list", page: 1 }));
+}
+
+async function renderConfirm(repo: Repo, ownerUserId: number, chatId: number, fishId: number): Promise<Screen> {
+  const fish = await repo.getAvailableCatch(ownerUserId, chatId, fishId);
+  if (fish === null) return { text: FISH_UPGRADE_UNAVAILABLE, keyboard: backToList(ownerUserId) };
+  const chance = upgradeChanceFor(fish.point);
+  if (chance === null) return { text: upgradeMaxRarityCard(fish), keyboard: backToList(ownerUserId) };
+  const targetGroup = getCatalog()[fish.point] ?? [];
+  if (targetGroup.length === 0) return { text: upgradeTargetMissingCard(fish), keyboard: backToList(ownerUserId) };
+  return {
+    text: upgradeConfirmCard(fish, chance, targetGroup[0]!.rarity),
+    keyboard: confirmKeyboard(ownerUserId, fishId),
+  };
 }
 
 /** The three rejected statuses keep a way back; resolved ones leave no active retry buttons. */
@@ -107,10 +132,7 @@ export function registerFishUpgradeCommands(bot: Bot<BotContext>, repo: Repo): v
     await repo.ensureFisher(userId, chatId, ctx.from.first_name);
     const screen = await renderList(repo, userId, chatId, 1);
     log.info({ userId, chatId }, "Fish upgrade menu opened");
-    await ctx.api.sendMessage(chatId, screen.text, {
-      reply_markup: screen.keyboard,
-      ephemeral_message_parameters: { receiver_user_id: userId },
-    });
+    await ctx.api.sendMessage(chatId, screen.text, { reply_markup: screen.keyboard });
     await ctx.deleteMessage();
   });
 
@@ -125,23 +147,24 @@ export function registerFishUpgradeCommands(bot: Bot<BotContext>, repo: Repo): v
       await ctx.answerCallbackQuery({ text: FISH_UPGRADE_FOREIGN, show_alert: true });
       return;
     }
-    const callbackMessage = ctx.callbackQuery.message;
-    if (
-      !isGroup(ctx) ||
-      callbackMessage === undefined ||
-      callbackMessage.receiver_user?.id !== ctx.from.id ||
-      callbackMessage.ephemeral_message_id === undefined
-    ) {
-      await answerStale(ctx, ctx.from.id, ctx.chat?.id, "missing owner-bound ephemeral message");
+    if (!isGroup(ctx) || ctx.callbackQuery.message === undefined) {
+      await answerStale(ctx, ctx.from.id, ctx.chat?.id, "callback outside a group message");
       return;
     }
 
     const userId = ctx.from.id;
-    const chatId = callbackMessage.chat.id;
+    const chatId = ctx.callbackQuery.message.chat.id;
 
     if (parsed.action.kind === "list") {
       const screen = await renderList(repo, userId, chatId, parsed.action.page);
-      await ctx.editEphemeralMessageText(screen.text, { reply_markup: screen.keyboard });
+      await ctx.editMessageText(screen.text, { reply_markup: screen.keyboard });
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    if (parsed.action.kind === "confirm") {
+      const screen = await renderConfirm(repo, userId, chatId, parsed.action.fishId);
+      await ctx.editMessageText(screen.text, { reply_markup: screen.keyboard });
       await ctx.answerCallbackQuery();
       return;
     }
@@ -172,7 +195,7 @@ export function registerFishUpgradeCommands(bot: Bot<BotContext>, repo: Repo): v
       "Fish upgrade attempt",
     );
     const screen = resultScreen(result, userId);
-    await ctx.editEphemeralMessageText(screen.text, { reply_markup: screen.keyboard });
+    await ctx.editMessageText(screen.text, { reply_markup: screen.keyboard });
     const answer = answerForResult(result);
     await ctx.answerCallbackQuery({ text: answer.text, show_alert: answer.show_alert });
   });

@@ -764,6 +764,29 @@ describe.skipIf(databaseUrl === undefined)("Repo fish upgrade integration", () =
     }>;
   }
 
+  test("getAvailableCatch returns only the owner's own available catch", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    const fishId = (await repo.getInventoryPage(1, -100, 1, 5)).fishes[0]!.id;
+
+    expect(await repo.getAvailableCatch(1, -100, fishId)).toEqual({
+      id: fishId,
+      name: "Окунь",
+      rarity: "Test",
+      point: 1,
+      sizeCm: 30,
+      weightG: 1000,
+      price: 100,
+    });
+    expect(await repo.getAvailableCatch(2, -100, fishId)).toBeNull();
+    expect(await repo.getAvailableCatch(1, -200, fishId)).toBeNull();
+    expect(await repo.getAvailableCatch(1, -100, fishId + 999)).toBeNull();
+
+    await repo.sellFish(1, -100, fishId);
+    expect(await repo.getAvailableCatch(1, -100, fishId)).toBeNull();
+  });
+
   test("success spends the source and inserts exactly one target-point catch", async () => {
     await migrateSchema(sql!);
     const repo = createRepo(sql!);

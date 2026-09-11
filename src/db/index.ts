@@ -376,6 +376,7 @@ export type Repo = {
   multiplyBalance(userId: number, chatId: number, multiplier: number): Promise<number>;
   getInventoryPage(userId: number, chatId: number, page: number, pageSize: number): Promise<InventoryPage>;
   getInventoryFish(userId: number, chatId: number, fishId: number): Promise<InventoryFishRow | null>;
+  getAvailableCatch(userId: number, chatId: number, fishId: number): Promise<InventoryFishRow | null>;
   getRarityInventory(userId: number, chatId: number): Promise<RarityInventorySummary[]>;
   getRaritySalePreview(userId: number, chatId: number, point: number): Promise<RaritySalePreview | null>;
   sellFish(userId: number, chatId: number, fishId: number): Promise<SaleResult>;
@@ -602,6 +603,24 @@ export function createRepo(sql: SQL): Repo {
       return {
         id: asNumber(row.id), name: String(row.fish_name), rarity: String(row.fish_rarity), point: asNumber(row.fish_rarity_point),
         sizeCm: asNumber(row.fish_size), weightG: asNumber(row.fish_weight), price: asNumber(row.fish_price), ...modifierFields(row),
+      };
+    },
+    async getAvailableCatch(userId, chatId, fishId): Promise<InventoryFishRow | null> {
+      const rows = (await sql`SELECT id, fish_name, fish_rarity, fish_rarity_point, fish_size, fish_weight, fish_price
+        FROM caught_fishes
+        WHERE id = ${fishId} AND user_id = ${userId} AND chat_id = ${chatId} AND inventory_state = 'available'`) as Array<
+        Record<string, unknown>
+      >;
+      const row = rows[0];
+      if (row === undefined) return null;
+      return {
+        id: asNumber(row.id),
+        name: String(row.fish_name),
+        rarity: String(row.fish_rarity),
+        point: asNumber(row.fish_rarity_point),
+        sizeCm: asNumber(row.fish_size),
+        weightG: asNumber(row.fish_weight),
+        price: asNumber(row.fish_price),
       };
     },
     async getRarityInventory(userId, chatId): Promise<RarityInventorySummary[]> {

@@ -2,7 +2,7 @@ import { describe, expect, test, spyOn } from "bun:test";
 import { Bot } from "grammy";
 import type { Chat, Update, User } from "grammy/types";
 import type { BotContext } from "../../bot.ts";
-import type { InventoryPage, Repo, UpgradeFishInput, UpgradeFishResult, UpgradeFishSource } from "../../db/index.ts";
+import type { InventoryFishRow, InventoryPage, Repo, UpgradeFishInput, UpgradeFishResult, UpgradeFishSource } from "../../db/index.ts";
 import { setCatalog } from "../fishing/catalog.ts";
 import { buildFishUpgradeCallbackData } from "./callback-data.ts";
 import { registerFishUpgradeCommands } from "./commands.ts";
@@ -46,14 +46,8 @@ function commandUpdate(spec: { updateId: number; text: string; chat?: CommandCha
   } as Update;
 }
 
-/** Menu presses arrive on an ephemeral, owner-bound message. */
-function menuCallback(spec: {
-  updateId: number;
-  ownerId: number;
-  pressingId: number;
-  data: string;
-  ephemeral?: boolean;
-}): Update {
+/** Menu presses arrive on the public group menu message. */
+function menuCallback(spec: { updateId: number; ownerId: number; pressingId: number; data: string }): Update {
   return {
     update_id: spec.updateId,
     callback_query: {
@@ -67,12 +61,6 @@ function menuCallback(spec: {
         chat: { id: GROUP_CHAT.id, type: "supergroup", title: "Рыбаки" },
         from: BOT_USER,
         text: "🎣 Улучшение рыбы",
-        ...(spec.ephemeral === false
-          ? {}
-          : {
-              receiver_user: { id: spec.ownerId, is_bot: false, first_name: "Игрок" },
-              ephemeral_message_id: 20,
-            }),
       },
     },
   } as Update;
@@ -132,6 +120,13 @@ function createFakeRepo(): FakeRepoState {
         totalCount,
         totalValue,
       };
+    },
+    async getAvailableCatch(userId: number, chatId: number, fishId: number): Promise<InventoryFishRow | null> {
+      calls.push("getAvailableCatch");
+      const fish = fishes.get(fishId);
+      if (fish === undefined || fish.userId !== userId || fish.chatId !== chatId || fish.state !== "available") return null;
+      const { id, name, rarity, point, sizeCm, weightG, price } = fish;
+      return { id, name, rarity, point, sizeCm, weightG, price };
     },
     async upgradeFish(input: UpgradeFishInput): Promise<UpgradeFishResult> {
       calls.push("upgradeFish");
@@ -237,7 +232,7 @@ function answerCalls(apiCalls: ApiCall[]): ApiCall[] {
 }
 
 function editCalls(apiCalls: ApiCall[]): ApiCall[] {
-  return apiCalls.filter((call) => call.method === "editEphemeralMessageText");
+  return apiCalls.filter((call) => call.method === "editMessageText");
 }
 
 function availableFish(fishes: Map<number, FakeFish>): FakeFish[] {
@@ -245,7 +240,7 @@ function availableFish(fishes: Map<number, FakeFish>): FakeFish[] {
 }
 
 describe("/fish_upgrade command", () => {
-  test("a group invocation opens a personal ephemeral menu and deletes the command", async () => {
+  test("a group invocation opens a public menu and deletes the command", async () => {
     setCatalog(TEST_CATALOG);
     const { repo, calls, fishers, fishes } = createFakeRepo();
     seedFisher(fishers, INITIATOR);
@@ -256,14 +251,14 @@ describe("/fish_upgrade command", () => {
 
     const sends = sendCalls(apiCalls);
     expect(sends).toHaveLength(1);
-    expect(sends[0]!.payload.ephemeral_message_parameters).toEqual({ receiver_user_id: INITIATOR.id });
+    expect(sends[0]!.payload.ephemeral_message_parameters).toBeUndefined();
     const text = String(sends[0]!.payload.text);
     expect(text).toContain("Улучшение рыбы");
     expect(text).toContain("1→2: 80%");
     const markup = sends[0]!.payload.reply_markup as InlineMarkup;
     expect(markup.inline_keyboard.map((row) => row.map((button) => button.text))).toEqual([["#1 Рыба 1 · Обычная"]]);
     expect(markup.inline_keyboard[0]![0]!.callback_data).toBe(
-      buildFishUpgradeCallbackData(INITIATOR.id, { kind: "pick", fishId: 1 }),
+      buildFishUpgradeCallbackData(INITIATOR.id, { kind: "confirm", fishId: 1 }),
     );
     expect(calls).toContain("ensureFisher");
     expect(calls).not.toContain("upgradeFish");
@@ -337,6 +332,120 @@ describe("/fish_upgrade command", () => {
   });
 });
 
+describe("confirmation screen", () => {
+  test("a fish button shows the exact chance and asks for confirmation before upgrading", async () => {
+    setCatalog(TEST_CATALOG);
+    const { repo, calls, fishers, fishes } = createFakeRepo();
+    seedFisher(fishers, INITIATOR);
+    seedFish(fishes, 1, INITIATOR);
+    const { bot, apiCalls } = createTestBot(repo);
+
+    await bot.handleUpdate(
+      menuCallback({
+        updateId: 1,
+        ownerId: INITIATOR.id,
+        pressingId: INITIATOR.id,
+        data: buildFishUpgradeCallbackData(INITIATOR.id, { kind: "confirm", fishId: 1 }),
+      }),
+    );
+
+    expect(calls).toContain("getAvailableCatch");
+    expect(calls).not.toContain("upgradeFish");
+    expect(fishes.get(1)!.state).toBe("available");
+    const edits = editCalls(apiCalls);
+    expect(edits).toHaveLength(1);
+    const text = String(edits[0]!.payload.text);
+    expect(text).toContain("Подтверждение улучшения");
+    expect(text).toContain("#1 <b>Рыба 1</b> (Обычная)");
+    expect(text).toContain("Цель: Редкая (редкость 2)");
+    expect(text).toContain("Шанс успеха: 80%");
+    const markup = edits[0]!.payload.reply_markup as InlineMarkup;
+    expect(markup.inline_keyboard.map((row) => row.map((button) => button.text))).toEqual([
+      ["🎣 Улучшить"],
+      ["← К списку"],
+    ]);
+    expect(markup.inline_keyboard[0]![0]!.callback_data).toBe(
+      buildFishUpgradeCallbackData(INITIATOR.id, { kind: "apply", fishId: 1 }),
+    );
+    expect(answerCalls(apiCalls)).toHaveLength(1);
+  });
+
+  test("confirmation for a max-rarity fish explains and offers no apply button", async () => {
+    setCatalog(TEST_CATALOG);
+    const { repo, calls, fishers, fishes } = createFakeRepo();
+    seedFisher(fishers, INITIATOR);
+    seedFish(fishes, 5, INITIATOR, { point: 6, rarity: "Легендарная" });
+    const { bot, apiCalls } = createTestBot(repo);
+
+    await bot.handleUpdate(
+      menuCallback({
+        updateId: 1,
+        ownerId: INITIATOR.id,
+        pressingId: INITIATOR.id,
+        data: buildFishUpgradeCallbackData(INITIATOR.id, { kind: "confirm", fishId: 5 }),
+      }),
+    );
+
+    expect(calls).not.toContain("upgradeFish");
+    const edits = editCalls(apiCalls);
+    expect(edits).toHaveLength(1);
+    expect(String(edits[0]!.payload.text)).toContain("максимальной доступной редкости");
+    const markup = edits[0]!.payload.reply_markup as InlineMarkup;
+    expect(markup.inline_keyboard.flat().map((button) => [button.text, button.callback_data])).toEqual([
+      ["← К списку", buildFishUpgradeCallbackData(INITIATOR.id, { kind: "list", page: 1 })],
+    ]);
+    expect(fishes.get(5)!.state).toBe("available");
+  });
+
+  test("confirmation for a fish with no next rarity group explains and offers no apply button", async () => {
+    setCatalog(TEST_CATALOG);
+    const { repo, fishers, fishes } = createFakeRepo();
+    seedFisher(fishers, INITIATOR);
+    seedFish(fishes, 3, INITIATOR, { point: 2, rarity: "Редкая" });
+    const { bot, apiCalls } = createTestBot(repo);
+
+    await bot.handleUpdate(
+      menuCallback({
+        updateId: 1,
+        ownerId: INITIATOR.id,
+        pressingId: INITIATOR.id,
+        data: buildFishUpgradeCallbackData(INITIATOR.id, { kind: "confirm", fishId: 3 }),
+      }),
+    );
+
+    const edits = editCalls(apiCalls);
+    expect(edits).toHaveLength(1);
+    expect(String(edits[0]!.payload.text)).toContain("нет рыб следующей редкости");
+    expect(edits[0]!.payload.reply_markup as InlineMarkup).toBeDefined();
+    expect((edits[0]!.payload.reply_markup as InlineMarkup).inline_keyboard.flat().map((button) => button.text)).toEqual([
+      "← К списку",
+    ]);
+    expect(fishes.get(3)!.state).toBe("available");
+  });
+
+  test("confirmation for an already unavailable fish shows the stale screen", async () => {
+    setCatalog(TEST_CATALOG);
+    const { repo, fishers, fishes } = createFakeRepo();
+    seedFisher(fishers, INITIATOR);
+    seedFish(fishes, 1, INITIATOR, { state: "sold" });
+    const { bot, apiCalls } = createTestBot(repo);
+
+    await bot.handleUpdate(
+      menuCallback({
+        updateId: 1,
+        ownerId: INITIATOR.id,
+        pressingId: INITIATOR.id,
+        data: buildFishUpgradeCallbackData(INITIATOR.id, { kind: "confirm", fishId: 1 }),
+      }),
+    );
+
+    const edits = editCalls(apiCalls);
+    expect(edits).toHaveLength(1);
+    expect(String(edits[0]!.payload.text)).toContain("больше недоступна");
+    expect(fishes.get(1)!.state).toBe("sold");
+  });
+});
+
 describe("fish upgrade attempts", () => {
   test("a foreign press alerts and never touches the inventory", async () => {
     setCatalog(TEST_CATALOG);
@@ -344,7 +453,7 @@ describe("fish upgrade attempts", () => {
     seedFisher(fishers, INITIATOR);
     seedFish(fishes, 1, INITIATOR);
     const { bot, apiCalls } = createTestBot(repo);
-    const data = buildFishUpgradeCallbackData(INITIATOR.id, { kind: "pick", fishId: 1 });
+    const data = buildFishUpgradeCallbackData(INITIATOR.id, { kind: "apply", fishId: 1 });
 
     await bot.handleUpdate(menuCallback({ updateId: 1, ownerId: INITIATOR.id, pressingId: FOREIGNER.id, data }));
 
@@ -354,22 +463,23 @@ describe("fish upgrade attempts", () => {
     expect(fishes.get(1)!.state).toBe("available");
   });
 
-  test("a non-ephemeral callback is answered as stale and mutates nothing", async () => {
+  test("a malformed callback is answered as stale and mutates nothing", async () => {
     setCatalog(TEST_CATALOG);
-    const { repo, calls, fishers, fishes } = createFakeRepo();
-    seedFisher(fishers, INITIATOR);
-    seedFish(fishes, 1, INITIATOR);
+    const { repo, calls } = createFakeRepo();
     const { bot, apiCalls } = createTestBot(repo);
-    const data = buildFishUpgradeCallbackData(INITIATOR.id, { kind: "pick", fishId: 1 });
 
     await bot.handleUpdate(
-      menuCallback({ updateId: 1, ownerId: INITIATOR.id, pressingId: INITIATOR.id, data, ephemeral: false }),
+      menuCallback({
+        updateId: 1,
+        ownerId: INITIATOR.id,
+        pressingId: INITIATOR.id,
+        data: "fup:1:x:1",
+      }),
     );
 
     expect(answerCalls(apiCalls)[0]!.payload).toMatchObject({ text: STALE_MENU_ALERT, show_alert: true });
     expect(editCalls(apiCalls)).toHaveLength(0);
     expect(calls).not.toContain("upgradeFish");
-    expect(fishes.get(1)!.state).toBe("available");
   });
 
   test("success spends the source and adds exactly one point+1 fish", async () => {
@@ -386,7 +496,7 @@ describe("fish upgrade attempts", () => {
           updateId: 1,
           ownerId: INITIATOR.id,
           pressingId: INITIATOR.id,
-          data: buildFishUpgradeCallbackData(INITIATOR.id, { kind: "pick", fishId: 1 }),
+          data: buildFishUpgradeCallbackData(INITIATOR.id, { kind: "apply", fishId: 1 }),
         }),
       );
     } finally {
@@ -422,7 +532,7 @@ describe("fish upgrade attempts", () => {
           updateId: 1,
           ownerId: INITIATOR.id,
           pressingId: INITIATOR.id,
-          data: buildFishUpgradeCallbackData(INITIATOR.id, { kind: "pick", fishId: 1 }),
+          data: buildFishUpgradeCallbackData(INITIATOR.id, { kind: "apply", fishId: 1 }),
         }),
       );
     } finally {
@@ -439,7 +549,7 @@ describe("fish upgrade attempts", () => {
     expect(answerCalls(apiCalls)[0]!.payload).toMatchObject({ text: "Попытка не удалась.", show_alert: false });
   });
 
-  test("a maximum-rarity fish is rejected with a reason and stays intact", async () => {
+  test("a direct apply press on a max-rarity fish is rejected with a reason and stays intact", async () => {
     setCatalog(TEST_CATALOG);
     const { repo, calls, fishers, fishes } = createFakeRepo();
     seedFisher(fishers, INITIATOR);
@@ -451,7 +561,7 @@ describe("fish upgrade attempts", () => {
         updateId: 1,
         ownerId: INITIATOR.id,
         pressingId: INITIATOR.id,
-        data: buildFishUpgradeCallbackData(INITIATOR.id, { kind: "pick", fishId: 5 }),
+        data: buildFishUpgradeCallbackData(INITIATOR.id, { kind: "apply", fishId: 5 }),
       }),
     );
 
@@ -466,7 +576,7 @@ describe("fish upgrade attempts", () => {
     expect(fishes.get(5)!.state).toBe("available");
   });
 
-  test("a fish whose next rarity group is missing is rejected and stays intact", async () => {
+  test("a direct apply press on a fish whose next rarity group is missing is rejected", async () => {
     setCatalog(TEST_CATALOG);
     const { repo, calls, fishers, fishes } = createFakeRepo();
     seedFisher(fishers, INITIATOR);
@@ -478,7 +588,7 @@ describe("fish upgrade attempts", () => {
         updateId: 1,
         ownerId: INITIATOR.id,
         pressingId: INITIATOR.id,
-        data: buildFishUpgradeCallbackData(INITIATOR.id, { kind: "pick", fishId: 3 }),
+        data: buildFishUpgradeCallbackData(INITIATOR.id, { kind: "apply", fishId: 3 }),
       }),
     );
 
@@ -498,7 +608,7 @@ describe("fish upgrade attempts", () => {
     seedFisher(fishers, INITIATOR);
     seedFish(fishes, 1, INITIATOR);
     const { bot, apiCalls } = createTestBot(repo);
-    const data = buildFishUpgradeCallbackData(INITIATOR.id, { kind: "pick", fishId: 1 });
+    const data = buildFishUpgradeCallbackData(INITIATOR.id, { kind: "apply", fishId: 1 });
     const restoreRandom = stubRandom(0.1);
 
     try {

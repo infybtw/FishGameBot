@@ -347,6 +347,9 @@ function createFakeRepo(): FakeRepo {
     async upgradeFish() {
       return unexpected("upgradeFish");
     },
+    async getAvailableCatch() {
+      return unexpected("getAvailableCatch");
+    },
   };
 }
 
