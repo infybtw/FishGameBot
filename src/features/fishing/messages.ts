@@ -48,10 +48,6 @@ export function secondCastCurse(): string {
   return `🌀 <b>${CURSES.second_cast.name}</b>\nВаш кулдаун снят: можно ловить снова.`;
 }
 
-export function stormTideCurse(removed: number): string {
-  return `🌊 <b>${CURSES.storm_tide.name}</b>\nКулдауны сняты для всех в этом чате (${removed}).`;
-}
-
 export function goldenScalesCurse(multiplier: number): string {
   return `🪙 <b>${CURSES.golden_scales.name}</b>\nВаш баланс умножен на ×${round2(multiplier)}.`;
 }

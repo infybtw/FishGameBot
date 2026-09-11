@@ -30,22 +30,11 @@ describe("rollCurse", () => {
 
   test("kind bands select the exact curse with its Russian name at every boundary", () => {
     expect(rollCurse(100, () => 0)).toEqual({ kind: "heavy_net", name: "Проклятие тяжёлой сети" });
-    expect(rollCurse(100, () => 0.31)).toEqual({ kind: "heavy_net", name: "Проклятие тяжёлой сети" });
-    expect(rollCurse(100, () => 0.32)).toEqual({ kind: "second_cast", name: "Проклятие второго заброса" });
-    expect(rollCurse(100, () => 0.63)).toEqual({ kind: "second_cast", name: "Проклятие второго заброса" });
-    expect(rollCurse(100, () => 0.64)).toEqual({ kind: "storm_tide", name: "Проклятие штормового прилива" });
-    expect(rollCurse(100, () => 0.68)).toEqual({ kind: "storm_tide", name: "Проклятие штормового прилива" });
-    expect(rollCurse(100, () => 0.69)).toEqual({ kind: "golden_scales", name: "Проклятие золотой чешуи" });
+    expect(rollCurse(100, () => 0.33)).toEqual({ kind: "heavy_net", name: "Проклятие тяжёлой сети" });
+    expect(rollCurse(100, () => 0.34)).toEqual({ kind: "second_cast", name: "Проклятие второго заброса" });
+    expect(rollCurse(100, () => 0.66)).toEqual({ kind: "second_cast", name: "Проклятие второго заброса" });
+    expect(rollCurse(100, () => 0.67)).toEqual({ kind: "golden_scales", name: "Проклятие золотой чешуи" });
     expect(rollCurse(100, () => 0.99)).toEqual({ kind: "golden_scales", name: "Проклятие золотой чешуи" });
-  });
-
-  test("only the 64-68 band is the chat-wide reset", () => {
-    for (const roll of [0, 0.31, 0.32, 0.63, 0.69, 0.99]) {
-      expect(rollCurse(100, () => roll)?.kind).not.toBe("storm_tide");
-    }
-    for (const roll of [0.64, 0.66, 0.68]) {
-      expect(rollCurse(100, () => roll)?.kind).toBe("storm_tide");
-    }
   });
 });
 

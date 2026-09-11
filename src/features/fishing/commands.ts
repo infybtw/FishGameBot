@@ -32,7 +32,6 @@ import {
   secondCastCurse,
   statsEmpty,
   statsMsg,
-  stormTideCurse,
   topFishers,
 } from "./messages.ts";
 
@@ -68,10 +67,6 @@ async function applyCurse(
     case "second_cast": {
       await repo.deleteCatchTime(userId, chatId);
       return secondCastCurse();
-    }
-    case "storm_tide": {
-      const removed = await repo.deleteCatchTimes(chatId);
-      return stormTideCurse(removed);
     }
     case "golden_scales": {
       const multiplier = rollBalanceMultiplier();

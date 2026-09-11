@@ -678,7 +678,7 @@ test("/fish second_cast curse clears the fresh cooldown so the next /fish casts 
   const start = 40_000_000;
   const nowSpy = spyOn(Date, "now").mockReturnValue(start * 1000);
 
-  mockRandom([0, 0, 0, ...SIZE_RANDOMS, 0, 0.32]);
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS, 0, 0.34]);
   await bot.handleUpdate(commandUpdate({ updateId: 303, text: "/fish", from: PLAYER }));
 
   expect(sentTexts).toHaveLength(1);
@@ -696,31 +696,6 @@ test("/fish second_cast curse clears the fresh cooldown so the next /fish casts 
   expect(sentTexts).toHaveLength(2);
   expect(sentTexts[1]).toContain("<b>Имя:</b> Окунь");
   expect(sentTexts[1]).not.toContain("Вы недавно ловили рыбу");
-
-  nowSpy.mockRestore();
-});
-
-test("/fish storm_tide curse clears every cooldown in this chat only and reports the count", async () => {
-  setCatalog(FULL_CATALOG);
-  const cfg: Config = { ...CFG, catchDelaySeconds: 3600, curseDropChance: 100 };
-  const { bot, sentTexts, repo } = createTestBot(cfg);
-  const start = 50_000_000;
-  const nowSpy = spyOn(Date, "now").mockReturnValue(start * 1000);
-  repo.catchTimes.set("8:-100", start - 60);
-  repo.catchTimes.set("9:-200", start - 60);
-
-  mockRandom([0, 0, 0, ...SIZE_RANDOMS, 0, 0.64]);
-  await bot.handleUpdate(commandUpdate({ updateId: 305, text: "/fish", from: PLAYER }));
-
-  expect(sentTexts).toHaveLength(1);
-  expect(sentTexts[0]).toContain("<b>Имя:</b> Окунь");
-  expect(sentTexts[0]!.endsWith(
-    "\n\n🌊 <b>Проклятие штормового прилива</b>\nКулдауны сняты для всех в этом чате (2).",
-  )).toBe(true);
-  expect(repo.catches).toHaveLength(1);
-  expect(repo.catchTimes.has("8:-100")).toBe(false);
-  expect(repo.catchTimes.has("9:-200")).toBe(true);
-  expect(repo.catchTimes.size).toBe(1);
 
   nowSpy.mockRestore();
 });
