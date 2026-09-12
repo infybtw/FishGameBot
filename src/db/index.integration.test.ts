@@ -120,6 +120,28 @@ describe.skipIf(databaseUrl === undefined)("Repo inventory economy integration",
     expect(rows).toEqual([{ inventory_state: "removed" }]);
   });
 
+  test("removes a selected inventory fish and resets a removed equipped rod", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(1, -100, "Player");
+    await createAvailableCatch(1, -100, 1, 100, "Selected");
+    const fishId = (await repo.getInventoryPage(1, -100, 1, 5)).fishes[0]!.id;
+
+    expect(await repo.removeInventoryFish(1, -100, fishId)).toBe(true);
+    expect(await repo.removeInventoryFish(1, -100, fishId)).toBe(false);
+    expect((await repo.getInventoryPage(1, -100, 1, 5)).totalCount).toBe(0);
+
+    await sql!`INSERT INTO fisher_rods (user_id, chat_id, rod_id) VALUES (1, -100, 'carbon')`;
+    await sql!`UPDATE fishers SET equipped_rod_id = 'carbon' WHERE user_id = 1 AND chat_id = -100`;
+    expect(await repo.removePurchasedRod(1, -100, "carbon")).toBe(true);
+    expect(await repo.removePurchasedRod(1, -100, "carbon")).toBe(false);
+    expect(await repo.getEquippedRodId(1, -100)).toBe("basic");
+
+    expect(await repo.grantPurchasedRod(1, -100, "carbon")).toBe(true);
+    expect(await repo.grantPurchasedRod(1, -100, "carbon")).toBe(false);
+    expect(await repo.listPurchasedRodIds(1, -100)).toEqual(["carbon"]);
+  });
+
   test("stores modifier fields on new catches and reads legacy rows as null", async () => {
     await migrateSchema(sql!);
     const repo = createRepo(sql!);

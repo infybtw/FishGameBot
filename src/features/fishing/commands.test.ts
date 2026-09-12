@@ -185,6 +185,9 @@ function createFakeRepo(): FakeRepo {
     async getInventoryPage() {
       return unexpected("getInventoryPage");
     },
+    async getInventoryFish() {
+      return unexpected("getInventoryFish");
+    },
     async getRarityInventory() {
       return unexpected("getRarityInventory");
     },
@@ -194,6 +197,9 @@ function createFakeRepo(): FakeRepo {
     async sellFish() {
       return unexpected("sellFish");
     },
+    async removeInventoryFish() {
+      return unexpected("removeInventoryFish");
+    },
     async sellRarity() {
       return unexpected("sellRarity");
     },
@@ -202,6 +208,12 @@ function createFakeRepo(): FakeRepo {
     },
     async listPurchasedRodIds() {
       return unexpected("listPurchasedRodIds");
+    },
+    async removePurchasedRod() {
+      return unexpected("removePurchasedRod");
+    },
+    async grantPurchasedRod() {
+      return unexpected("grantPurchasedRod");
     },
     async equipRod() {
       return unexpected("equipRod");

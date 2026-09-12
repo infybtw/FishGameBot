@@ -1,4 +1,4 @@
-import type { InventoryPage, RarityInventorySummary } from "../../db/index.ts";
+import type { InventoryFishRow, InventoryPage, RarityInventorySummary } from "../../db/index.ts";
 import { escapeHtml, round2 } from "../../lib/format.ts";
 import { modifierLabel } from "../fishing/modifiers.ts";
 import { getRod, type RodDefinition } from "./rods.ts";
@@ -45,6 +45,14 @@ export function inventoryCard(inventory: InventoryPage): string {
     );
   }
   return lines.join("\n");
+}
+
+export function inventoryFishCard(fish: InventoryFishRow): string {
+  return (
+    `🐟 <b>${escapeHtml(modifierLabel(fish.name, fish.fishModifierName))}</b>\n\n` +
+    `#${fish.id}\n${escapeHtml(fish.rarity)} · ${round2(fish.weightG / 1000)} кг · ${round2(fish.sizeCm)} см\n` +
+    `Цена продажи: ${money(fish.price)}`
+  );
 }
 
 export function raritySaleCard(summaries: readonly RarityInventorySummary[]): string {

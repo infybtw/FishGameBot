@@ -1,11 +1,14 @@
 import type { Context } from "grammy";
 import { createConversation } from "@grammyjs/conversations";
-import { InputFile, type Bot } from "grammy";
+import { InlineKeyboard, InputFile, type Bot } from "grammy";
 import type { BotContext, CatalogAccess, FishConversation } from "../../bot.ts";
 import type { Config } from "../../config.ts";
 import type { FishTemplateInsert, FishTemplateRow, Repo } from "../../db/index.ts";
-import { isAdmin } from "../../guards.ts";
+import { isAdmin, isGroup } from "../../guards.ts";
+import { escapeHtml } from "../../lib/format.ts";
 import { log } from "../../logger.ts";
+import { inventoryCard, inventoryFishCard, profileCard } from "../upgrades/messages.ts";
+import { getRod, RODS } from "../upgrades/rods.ts";
 
 const ADD_INVITE =
   "Введите данные для добавления новой рыбы в формате:\nfish_name/fish_rarity/fish_rarity_point";
@@ -23,6 +26,9 @@ const IMPORT_FAIL = "Во время импорта рыбы произошла 
 const EXPORT_FAIL = "Произошла ошибка";
 const CCLEAR_USAGE = "Использование: /cclear или /cclear <количество>";
 const CCLEAR_OK = (deleted: number) => `Удалено сообщений и команд: ${deleted}`;
+const APROFILE_USAGE = "Использование: ответьте командой /aprofile на сообщение игрока.";
+const APROFILE_EMPTY = "У этого игрока ещё нет профиля в этом чате.";
+const APROFILE_STALE = "Меню устарело. Откройте профиль заново.";
 
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -64,6 +70,119 @@ function parseClearLimit(raw: string): number | null | undefined {
   if (!/^\d+$/.test(value)) return null;
   const limit = Number(value);
   return Number.isSafeInteger(limit) && limit > 0 ? limit : null;
+}
+
+type AProfileAction =
+  | { kind: "home" | "rods" }
+  | { kind: "fish"; page: number }
+  | { kind: "fishDetail" | "sellFish" | "removeFish"; fishId: number }
+  | { kind: "rodDetail" | "grantRod" | "removeRod"; rodId: string };
+
+function buildAprofileCallback(targetUserId: number, action: AProfileAction): string {
+  const prefix = `ap:${targetUserId}:`;
+  const payload =
+    action.kind === "fish" ? `${prefix}fish:${action.page}` :
+    action.kind === "fishDetail" ? `${prefix}fd:${action.fishId}` :
+    action.kind === "sellFish" ? `${prefix}sell:${action.fishId}` :
+    action.kind === "removeFish" ? `${prefix}rmf:${action.fishId}` :
+    action.kind === "rodDetail" ? `${prefix}rd:${action.rodId}` :
+    action.kind === "grantRod" ? `${prefix}grant:${action.rodId}` :
+    action.kind === "removeRod" ? `${prefix}rmr:${action.rodId}` :
+    `${prefix}${action.kind}`;
+  if (Buffer.byteLength(payload, "utf8") > 64) throw new Error("Telegram callback_data exceeds 64 bytes");
+  return payload;
+}
+
+function parseAprofileCallback(payload: string): { targetUserId: number; action: AProfileAction } | null {
+  const match = /^ap:([1-9]\d*):(home|rods|fish:([1-9]\d*)|(fd|sell|rmf):([1-9]\d*)|(rd|grant|rmr):([a-z]+))$/.exec(payload);
+  if (match === null) return null;
+  const targetUserId = Number(match[1]);
+  if (!Number.isSafeInteger(targetUserId)) return null;
+  if (match[2] === "home" || match[2] === "rods") return { targetUserId, action: { kind: match[2] } };
+  if (match[3] !== undefined) return { targetUserId, action: { kind: "fish", page: Number(match[3]) } };
+  if (match[4] === "fd" || match[4] === "sell" || match[4] === "rmf") {
+    const kinds = { fd: "fishDetail", sell: "sellFish", rmf: "removeFish" } as const;
+    return { targetUserId, action: { kind: kinds[match[4]], fishId: Number(match[5]) } };
+  }
+  if (match[6] !== undefined && match[7] !== undefined && getRod(match[7]) !== undefined) {
+    const kinds = { rd: "rodDetail", grant: "grantRod", rmr: "removeRod" } as const;
+    return { targetUserId, action: { kind: kinds[match[6] as keyof typeof kinds], rodId: match[7] } };
+  }
+  return null;
+}
+
+type AProfileScreen = { text: string; keyboard: InlineKeyboard };
+
+async function renderAprofileHome(repo: Repo, cfg: Config, userId: number, chatId: number): Promise<AProfileScreen> {
+  const [fisher, inventory, equippedRodId] = await Promise.all([
+    repo.getFisher(userId, chatId),
+    repo.getInventoryPage(userId, chatId, 1, 5),
+    repo.getEquippedRodId(userId, chatId),
+  ]);
+  if (fisher === null) return { text: APROFILE_EMPTY, keyboard: new InlineKeyboard() };
+  const rod = getRod(equippedRodId ?? "basic") ?? getRod("basic")!;
+  return {
+    text: `<b>Админ-профиль: ${escapeHtml(fisher.firstName)}</b>\n\n${profileCard(fisher.balance, rod, cfg.catchSuccessChance, inventory.totalCount, inventory.totalValue)}`,
+    keyboard: new InlineKeyboard()
+      .text("Рыба", buildAprofileCallback(userId, { kind: "fish", page: 1 }))
+      .text("Удочки", buildAprofileCallback(userId, { kind: "rods" })),
+  };
+}
+
+async function renderAprofileFish(repo: Repo, userId: number, chatId: number, page: number): Promise<AProfileScreen> {
+  const inventory = await repo.getInventoryPage(userId, chatId, page, 5);
+  const keyboard = new InlineKeyboard();
+  for (const fish of inventory.fishes) keyboard.text(`Рыба #${fish.id}`, buildAprofileCallback(userId, { kind: "fishDetail", fishId: fish.id })).row();
+  if (inventory.page > 1) keyboard.text("←", buildAprofileCallback(userId, { kind: "fish", page: inventory.page - 1 }));
+  if (inventory.page * 5 < inventory.totalCount) keyboard.text("→", buildAprofileCallback(userId, { kind: "fish", page: inventory.page + 1 }));
+  if (inventory.page > 1 || inventory.page * 5 < inventory.totalCount) keyboard.row();
+  keyboard.text("Назад", buildAprofileCallback(userId, { kind: "home" }));
+  return { text: `<b>Админ: рыба</b>\n\n${inventoryCard(inventory)}`, keyboard };
+}
+
+async function renderAprofileFishDetail(repo: Repo, userId: number, chatId: number, fishId: number): Promise<AProfileScreen> {
+  const fish = await repo.getInventoryFish(userId, chatId, fishId);
+  if (fish === null) return { text: "Эта рыба уже недоступна.", keyboard: new InlineKeyboard().text("К рыбе", buildAprofileCallback(userId, { kind: "fish", page: 1 })) };
+  return {
+    text: `<b>Админ: рыба игрока</b>\n\n${inventoryFishCard(fish)}`,
+    keyboard: new InlineKeyboard()
+      .text("Продать", buildAprofileCallback(userId, { kind: "sellFish", fishId }))
+      .text("Удалить", buildAprofileCallback(userId, { kind: "removeFish", fishId }))
+      .row()
+      .text("Назад", buildAprofileCallback(userId, { kind: "fish", page: 1 })),
+  };
+}
+
+async function renderAprofileRods(repo: Repo, userId: number, chatId: number): Promise<AProfileScreen> {
+  const [purchased, equipped] = await Promise.all([repo.listPurchasedRodIds(userId, chatId), repo.getEquippedRodId(userId, chatId)]);
+  const owned = new Set(purchased);
+  const keyboard = new InlineKeyboard();
+  const lines = ["🎣 <b>Админ: удочки</b>", "", "Выберите удочку для управления:"];
+  for (const rod of RODS) {
+    const purchased = rod.id === "basic" || owned.has(rod.id);
+    lines.push(`${purchased ? "✅" : "❌"} ${rod.name}${equipped === rod.id ? " (экипирована)" : ""}`);
+    keyboard.text(`${purchased ? "✅" : "❌"} ${rod.name}`, buildAprofileCallback(userId, { kind: "rodDetail", rodId: rod.id })).row();
+  }
+  keyboard.text("Назад", buildAprofileCallback(userId, { kind: "home" }));
+  return { text: lines.join("\n"), keyboard };
+}
+
+async function renderAprofileRodDetail(repo: Repo, userId: number, chatId: number, rodId: string): Promise<AProfileScreen> {
+  const rod = getRod(rodId);
+  if (rod === undefined) throw new Error("Unknown rod in validated callback");
+  const [purchased, equipped] = await Promise.all([repo.listPurchasedRodIds(userId, chatId), repo.getEquippedRodId(userId, chatId)]);
+  const owned = rod.id === "basic" || purchased.includes(rod.id);
+  const lines = [
+    `🎣 <b>${escapeHtml(rod.name)}</b>`,
+    "",
+    `<b>Статус:</b> ${owned ? "✅ Выдана" : "❌ Не выдана"}${equipped === rod.id ? " · экипирована" : ""}`,
+    `<b>Бонус к поимке:</b> +${rod.catchBonusPoints} п.п.`,
+    `<b>Бонус редкости:</b> +${rod.rarityStepBonus * 100}% за шаг`,
+  ];
+  const keyboard = new InlineKeyboard();
+  if (rod.id !== "basic") keyboard.text(owned ? "Удалить удочку" : "Выдать удочку", buildAprofileCallback(userId, owned ? { kind: "removeRod", rodId } : { kind: "grantRod", rodId })).row();
+  keyboard.text("Назад", buildAprofileCallback(userId, { kind: "rods" }));
+  return { text: lines.join("\n"), keyboard };
 }
 
 function addFishConversation(cfg: Config, repo: Repo) {
@@ -255,6 +374,90 @@ export function registerAdminCommands(
     }
     log.info({ chatId: ctx.chat.id, requested: limit ?? "all", deleted }, "Bot messages and commands cleared by admin");
     await ctx.reply(CCLEAR_OK(deleted));
+  });
+
+  bot.command("aprofile", async (ctx) => {
+    if (!isAdmin(ctx, cfg.adminUserId)) {
+      logAdminRejected(ctx, "aprofile");
+      return;
+    }
+    if (!isGroup(ctx)) return;
+    const target = ctx.message?.reply_to_message?.from;
+    if (target === undefined || target.is_bot) {
+      await ctx.reply(APROFILE_USAGE);
+      return;
+    }
+    const screen = await renderAprofileHome(repo, cfg, target.id, ctx.chat.id);
+    await ctx.api.sendMessage(ctx.chat.id, screen.text, {
+      reply_markup: screen.keyboard,
+      ephemeral_message_parameters: { receiver_user_id: cfg.adminUserId },
+    });
+    await ctx.deleteMessage();
+  });
+
+  bot.callbackQuery(/^ap:/, async (ctx) => {
+    const parsed = parseAprofileCallback(ctx.callbackQuery.data);
+    const message = ctx.callbackQuery.message;
+    if (
+      parsed === null ||
+      !isAdmin(ctx, cfg.adminUserId) ||
+      ctx.from === undefined ||
+      !isGroup(ctx) ||
+      message === undefined ||
+      message.receiver_user?.id !== cfg.adminUserId ||
+      message.ephemeral_message_id === undefined
+    ) {
+      await ctx.answerCallbackQuery({ text: APROFILE_STALE, show_alert: true });
+      return;
+    }
+
+    const { targetUserId, action } = parsed;
+    const chatId = message.chat.id;
+    let screen: AProfileScreen;
+    let answerText: string | undefined;
+    switch (action.kind) {
+      case "home":
+        screen = await renderAprofileHome(repo, cfg, targetUserId, chatId);
+        break;
+      case "fish":
+        screen = await renderAprofileFish(repo, targetUserId, chatId, action.page);
+        break;
+      case "fishDetail":
+        screen = await renderAprofileFishDetail(repo, targetUserId, chatId, action.fishId);
+        break;
+      case "rods":
+        screen = await renderAprofileRods(repo, targetUserId, chatId);
+        break;
+      case "rodDetail":
+        screen = await renderAprofileRodDetail(repo, targetUserId, chatId, action.rodId);
+        break;
+      case "sellFish": {
+        const result = await repo.sellFish(targetUserId, chatId, action.fishId);
+        answerText = result.status === "sold" ? "Рыба продана игроку." : "Рыба уже недоступна.";
+        screen = await renderAprofileFish(repo, targetUserId, chatId, Number.MAX_SAFE_INTEGER);
+        break;
+      }
+      case "removeFish": {
+        const removed = await repo.removeInventoryFish(targetUserId, chatId, action.fishId);
+        answerText = removed ? "Рыба удалена." : "Рыба уже недоступна.";
+        screen = await renderAprofileFish(repo, targetUserId, chatId, Number.MAX_SAFE_INTEGER);
+        break;
+      }
+      case "removeRod": {
+        const removed = await repo.removePurchasedRod(targetUserId, chatId, action.rodId);
+        answerText = removed ? "Удочка удалена." : "Удочка уже недоступна.";
+        screen = await renderAprofileRods(repo, targetUserId, chatId);
+        break;
+      }
+      case "grantRod": {
+        const granted = await repo.grantPurchasedRod(targetUserId, chatId, action.rodId);
+        answerText = granted ? "Удочка выдана." : "Удочка уже выдана.";
+        screen = await renderAprofileRodDetail(repo, targetUserId, chatId, action.rodId);
+        break;
+      }
+    }
+    await ctx.editEphemeralMessageText(screen.text, { reply_markup: screen.keyboard });
+    await ctx.answerCallbackQuery(answerText === undefined ? undefined : { text: answerText });
   });
 
   bot.command("get_fish_list", async (ctx) => {

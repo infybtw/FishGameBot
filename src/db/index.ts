@@ -321,12 +321,16 @@ export type Repo = {
   getFisher(userId: number, chatId: number): Promise<FisherRow | null>;
   multiplyBalance(userId: number, chatId: number, multiplier: number): Promise<number>;
   getInventoryPage(userId: number, chatId: number, page: number, pageSize: number): Promise<InventoryPage>;
+  getInventoryFish(userId: number, chatId: number, fishId: number): Promise<InventoryFishRow | null>;
   getRarityInventory(userId: number, chatId: number): Promise<RarityInventorySummary[]>;
   getRaritySalePreview(userId: number, chatId: number, point: number): Promise<RaritySalePreview | null>;
   sellFish(userId: number, chatId: number, fishId: number): Promise<SaleResult>;
+  removeInventoryFish(userId: number, chatId: number, fishId: number): Promise<boolean>;
   sellRarity(userId: number, chatId: number, point: number, maxFishId: number): Promise<SaleResult>;
   purchaseRod(userId: number, chatId: number, spec: RodPurchaseSpec): Promise<PurchaseResult>;
   listPurchasedRodIds(userId: number, chatId: number): Promise<string[]>;
+  removePurchasedRod(userId: number, chatId: number, rodId: string): Promise<boolean>;
+  grantPurchasedRod(userId: number, chatId: number, rodId: string): Promise<boolean>;
   getEquippedRodId(userId: number, chatId: number): Promise<string | null>;
   equipRod(userId: number, chatId: number, rodId: string): Promise<EquipResult>;
   listTemplates(): Promise<FishTemplateRow[]>;
@@ -491,6 +495,18 @@ export function createRepo(sql: SQL): Repo {
         totalValue,
       };
     },
+    async getInventoryFish(userId, chatId, fishId): Promise<InventoryFishRow | null> {
+      const rows = (await sql`SELECT id, fish_name, fish_rarity, fish_rarity_point, fish_size, fish_weight, fish_price,
+          fish_modifier_id, fish_modifier_name, fish_modifier_rarity
+        FROM caught_fishes
+        WHERE id = ${fishId} AND user_id = ${userId} AND chat_id = ${chatId} AND inventory_state = 'available'`) as Array<Record<string, unknown>>;
+      const row = rows[0];
+      if (row === undefined) return null;
+      return {
+        id: asNumber(row.id), name: String(row.fish_name), rarity: String(row.fish_rarity), point: asNumber(row.fish_rarity_point),
+        sizeCm: asNumber(row.fish_size), weightG: asNumber(row.fish_weight), price: asNumber(row.fish_price), ...modifierFields(row),
+      };
+    },
     async getRarityInventory(userId, chatId): Promise<RarityInventorySummary[]> {
       const rows = (await sql`SELECT fish_rarity_point, COUNT(*)::int AS count, COALESCE(SUM(fish_price), 0) AS total
         FROM caught_fishes
@@ -523,6 +539,11 @@ export function createRepo(sql: SQL): Repo {
           WHERE user_id = ${userId} AND chat_id = ${chatId}`;
         return { status: "sold", count: 1, total };
       });
+    },
+    async removeInventoryFish(userId, chatId, fishId): Promise<boolean> {
+      const result = await sql`UPDATE caught_fishes SET inventory_state = 'removed'
+        WHERE id = ${fishId} AND user_id = ${userId} AND chat_id = ${chatId} AND inventory_state = 'available'`;
+      return result.count === 1;
     },
     async sellRarity(userId, chatId, point, maxFishId): Promise<SaleResult> {
       return sql.begin(async (tx) => {
@@ -594,6 +615,25 @@ export function createRepo(sql: SQL): Repo {
       const rows = (await sql`SELECT rod_id FROM fisher_rods
         WHERE user_id = ${userId} AND chat_id = ${chatId} AND rod_id <> 'basic' ORDER BY rod_id`) as Array<Record<string, unknown>>;
       return rows.map((row) => String(row.rod_id));
+    },
+    async removePurchasedRod(userId, chatId, rodId): Promise<boolean> {
+      if (rodId === "basic") return false;
+      return sql.begin(async (tx) => {
+        const deleted = await tx`DELETE FROM fisher_rods
+          WHERE user_id = ${userId} AND chat_id = ${chatId} AND rod_id = ${rodId}`;
+        if (deleted.count === 0) return false;
+        await tx`UPDATE fishers SET equipped_rod_id = 'basic'
+          WHERE user_id = ${userId} AND chat_id = ${chatId} AND equipped_rod_id = ${rodId}`;
+        return true;
+      });
+    },
+    async grantPurchasedRod(userId, chatId, rodId): Promise<boolean> {
+      if (rodId === "basic") return false;
+      const result = await sql`INSERT INTO fisher_rods (user_id, chat_id, rod_id)
+        SELECT ${userId}, ${chatId}, ${rodId}
+        WHERE EXISTS (SELECT 1 FROM fishers WHERE user_id = ${userId} AND chat_id = ${chatId})
+        ON CONFLICT DO NOTHING`;
+      return result.count === 1;
     },
     async getEquippedRodId(userId, chatId): Promise<string | null> {
       const rows = (await sql`SELECT equipped_rod_id FROM fishers

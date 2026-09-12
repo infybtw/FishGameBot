@@ -27,6 +27,7 @@ const OWNER_GROUP_COMMANDS: BotCommand[] = [
   { command: "cr", description: "Отменить последний улов (реплаем)" },
   { command: "chanceup", description: "Выдать буст шанса (реплаем)" },
   { command: "fakefish", description: "Тестовая карта улова" },
+  { command: "aprofile", description: "Профиль игрока (реплаем)" },
   { command: "cclear", description: "Удалить сообщения и команды" },
 ];
 

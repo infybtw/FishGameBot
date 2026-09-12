@@ -19,7 +19,7 @@ const CFG: Config = {
   databaseUrl: "postgres://localhost/fishbot_test",
 };
 
-function update(text: string, from = ADMIN): Update {
+function update(text: string, from = ADMIN, replyTo?: User): Update {
   return {
     update_id: 1,
     message: {
@@ -29,6 +29,8 @@ function update(text: string, from = ADMIN): Update {
       from: { ...from, is_bot: false } as User,
       text,
       entities: [{ type: "bot_command", offset: 0, length: text.indexOf(" ") === -1 ? text.length : text.indexOf(" ") }],
+      reply_to_message:
+        replyTo === undefined ? undefined : { message_id: 2, date: 0, chat: CHAT, from: replyTo },
     },
   } as Update;
 }
@@ -38,11 +40,17 @@ function createBot(messageIds: number[]): {
   deleted: number[];
   requested: Array<number | undefined>;
   replies: string[];
+  removedFishIds: number[];
+  removedRodIds: string[];
+  grantedRodIds: string[];
 } {
   const deleted: number[] = [];
   const requested: Array<number | undefined> = [];
   const replies: string[] = [];
   const forgotten: number[] = [];
+  const removedFishIds: number[] = [];
+  const removedRodIds: string[] = [];
+  const grantedRodIds: string[] = [];
   const repo = {
     async listRecentClearableMessageIds(_chatId: number, limit?: number) {
       requested.push(limit);
@@ -50,6 +58,36 @@ function createBot(messageIds: number[]): {
     },
     async markChatMessageDeleted(_chatId: number, messageId: number) {
       forgotten.push(messageId);
+    },
+    async getFisher(userId: number, chatId: number) {
+      return userId === 9 && chatId === CHAT.id ? { userId, chatId, firstName: "Игрок", balance: 100 } : null;
+    },
+    async getInventoryPage() {
+      return { fishes: [], page: 1, totalCount: 0, totalValue: 0 };
+    },
+    async getInventoryFish(_userId: number, _chatId: number, fishId: number) {
+      return { id: fishId, name: "Окунь", rarity: "Обычная", point: 1, sizeCm: 30, weightG: 1000, price: 100, fishModifierId: null, fishModifierName: null, fishModifierRarity: null };
+    },
+    async getEquippedRodId() {
+      return "basic";
+    },
+    async listPurchasedRodIds() {
+      return [];
+    },
+    async removeInventoryFish(_userId: number, _chatId: number, fishId: number) {
+      removedFishIds.push(fishId);
+      return true;
+    },
+    async removePurchasedRod(_userId: number, _chatId: number, rodId: string) {
+      removedRodIds.push(rodId);
+      return true;
+    },
+    async grantPurchasedRod(_userId: number, _chatId: number, rodId: string) {
+      grantedRodIds.push(rodId);
+      return true;
+    },
+    async sellFish() {
+      return { status: "sold" as const, count: 1, total: 100 };
     },
   } as unknown as Repo;
   const bot = new Bot<BotContext>(CFG.botToken, {
@@ -78,12 +116,13 @@ function createBot(messageIds: number[]): {
       replies.push((payload as { text: string }).text);
       return { ok: true, result: { message_id: 2 } } as never;
     }
+    if (method === "editEphemeralMessageText" || method === "answerCallbackQuery") return { ok: true, result: true } as never;
     throw new Error(`Unexpected API method: ${method}`);
   });
   bot.use(conversations());
   const catalogAccess: CatalogAccess = { async reload() { return []; } };
   registerAdminCommands(bot, CFG, repo, catalogAccess);
-  return { bot, deleted, requested, replies };
+  return { bot, deleted, requested, replies, removedFishIds, removedRodIds, grantedRodIds };
 }
 
 describe("/cclear", () => {
@@ -113,5 +152,68 @@ describe("/cclear", () => {
 
     expect(requested).toEqual([]);
     expect(deleted).toEqual([]);
+  });
+});
+
+describe("/aprofile", () => {
+  test("opens a replied player's profile in an admin-bound ephemeral menu", async () => {
+    const { bot, replies, deleted } = createBot([]);
+    const player = { id: 9, is_bot: false, first_name: "Игрок" } as User;
+
+    await bot.handleUpdate(update("/aprofile", ADMIN, player));
+
+    expect(replies[0]).toContain("Админ-профиль: Игрок");
+    expect(replies[0]).toContain("Профиль рыбака");
+    expect(deleted).toEqual([1]);
+  });
+
+  test("opens fish details before applying an admin action", async () => {
+    const { bot, removedFishIds } = createBot([]);
+    const callback = (from: User, data: string) => ({
+      update_id: 2,
+      callback_query: {
+        id: "callback",
+        from,
+        chat_instance: "instance",
+        data,
+        message: {
+          message_id: 3,
+          date: 0,
+          chat: CHAT,
+          from: { id: 99, is_bot: true, first_name: "FishBot" },
+          receiver_user: { id: ADMIN.id, is_bot: false, first_name: ADMIN.first_name },
+          ephemeral_message_id: 1,
+        },
+      },
+    });
+
+    await bot.handleUpdate(callback({ id: 2, is_bot: false, first_name: "Игрок" }, "ap:9:fd:7") as Update);
+    expect(removedFishIds).toEqual([]);
+    await bot.handleUpdate(callback({ id: ADMIN.id, is_bot: false, first_name: ADMIN.first_name }, "ap:9:fd:7") as Update);
+    expect(removedFishIds).toEqual([]);
+    await bot.handleUpdate(callback({ id: ADMIN.id, is_bot: false, first_name: ADMIN.first_name }, "ap:9:rmf:7") as Update);
+    expect(removedFishIds).toEqual([7]);
+  });
+
+  test("grants an unowned rod from its admin menu", async () => {
+    const { bot, grantedRodIds } = createBot([]);
+    await bot.handleUpdate({
+      update_id: 3,
+      callback_query: {
+        id: "grant-rod",
+        from: { id: ADMIN.id, is_bot: false, first_name: ADMIN.first_name },
+        chat_instance: "instance",
+        data: "ap:9:grant:carbon",
+        message: {
+          message_id: 3,
+          date: 0,
+          chat: CHAT,
+          from: { id: 99, is_bot: true, first_name: "FishBot" },
+          receiver_user: { id: ADMIN.id, is_bot: false, first_name: ADMIN.first_name },
+          ephemeral_message_id: 1,
+        },
+      },
+    } as Update);
+    expect(grantedRodIds).toEqual(["carbon"]);
   });
 });
