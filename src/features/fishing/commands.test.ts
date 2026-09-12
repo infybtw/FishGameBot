@@ -80,6 +80,7 @@ type FakeRepo = Repo & {
   chanceUps: Set<string>;
   catches: CatchInsert[];
   announcements: { eventId: string; startedAt: number } | null;
+  stoppedEvent: { eventId: string; startedAt: number } | null;
 };
 
 /** Fake stored cooldown pair; CATCH_DELAY substitute defaults to one hour. */
@@ -94,6 +95,7 @@ function createFakeRepo(): FakeRepo {
   const chanceUps = new Set<string>();
   const catches: CatchInsert[] = [];
   let announcements: { eventId: string; startedAt: number } | null = null;
+  let stoppedEvent: { eventId: string; startedAt: number } | null = null;
   const key = (userId: number, chatId: number) => `${userId}:${chatId}`;
   const unexpected = (name: string): never => {
     throw new Error(`Unexpected repo call in test: ${name}`);
@@ -109,6 +111,12 @@ function createFakeRepo(): FakeRepo {
     },
     set announcements(value: { eventId: string; startedAt: number } | null) {
       announcements = value;
+    },
+    get stoppedEvent() {
+      return stoppedEvent;
+    },
+    set stoppedEvent(value: { eventId: string; startedAt: number } | null) {
+      stoppedEvent = value;
     },
     async ensureFisher(userId, chatId, firstName) {
       calls.push("ensureFisher");
@@ -196,6 +204,14 @@ function createFakeRepo(): FakeRepo {
     async setTimeEventAnnouncement(eventId, startedAt) {
       calls.push("setTimeEventAnnouncement");
       announcements = { eventId, startedAt };
+    },
+    async getTimeEventStop() {
+      calls.push("getTimeEventStop");
+      return stoppedEvent;
+    },
+    async setTimeEventStop(eventId, startedAt) {
+      calls.push("setTimeEventStop");
+      stoppedEvent = { eventId, startedAt };
     },
     async grantChanceUp(userId, chatId) {
       calls.push("grantChanceUp");
@@ -903,6 +919,43 @@ test("/fish during Рассветный клёв adds +20 percentage points to t
   expect(repo.catches).toHaveLength(1);
   expect(sentTexts[0]).toContain("Событие «Рассветный клёв»");
 
+  nowSpy.mockRestore();
+});
+
+test("/event_stop disables the active occurrence until its next scheduled start", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, catchDelaySeconds: 3600 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 6, 30));
+
+  await bot.handleUpdate(commandUpdate({ updateId: 405, text: "/event_stop", from: ADMIN }));
+  expect(repo.stoppedEvent).toEqual({ eventId: "dawn_bite", startedAt: mskMs(2026, 9, 9, 6) / 1000 });
+  expect(sentTexts[0]).toContain("Событие «Рассветный клёв» остановлено");
+
+  // 60 would succeed with the dawn bonus, but fails after the stop.
+  mockRandom([0.6]);
+  await bot.handleUpdate(commandUpdate({ updateId: 406, text: "/fish", from: PLAYER }));
+  expect(repo.catches).toHaveLength(0);
+  expect(sentTexts[1]).toContain("ничего не поймал");
+
+  // The following day's new occurrence has a different start and is active.
+  nowSpy.mockReturnValue(mskMs(2026, 9, 10, 6, 30));
+  mockRandom([0.6, 0, 0, ...SIZE_RANDOMS]);
+  await bot.handleUpdate(commandUpdate({ updateId: 407, text: "/fish", from: PLAYER }));
+  expect(repo.catches).toHaveLength(1);
+  expect(sentTexts[2]).toContain("Событие «Рассветный клёв»");
+
+  nowSpy.mockRestore();
+});
+
+test("/event_stop is ignored for users other than ADMIN_USER_ID", async () => {
+  const { bot, sentTexts, repo } = createTestBot();
+  const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 6, 30));
+
+  await bot.handleUpdate(commandUpdate({ updateId: 408, text: "/event_stop", from: PLAYER }));
+
+  expect(sentTexts).toEqual([]);
+  expect(repo.stoppedEvent).toBeNull();
   nowSpy.mockRestore();
 });
 

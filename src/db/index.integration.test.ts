@@ -353,6 +353,17 @@ describe.skipIf(databaseUrl === undefined)("Repo cooldowns and time event announ
     const rows = (await sql!`SELECT event_id FROM time_event_announcements`) as unknown[];
     expect(rows).toHaveLength(1);
   });
+
+  test("the stopped event pair is replaced for each manual stop", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+
+    expect(await repo.getTimeEventStop()).toBeNull();
+    await repo.setTimeEventStop("calm", 1_000);
+    expect(await repo.getTimeEventStop()).toEqual({ eventId: "calm", startedAt: 1_000 });
+    await repo.setTimeEventStop("night_trophy", 2_000);
+    expect(await repo.getTimeEventStop()).toEqual({ eventId: "night_trophy", startedAt: 2_000 });
+  });
 });
 
 describe.skipIf(databaseUrl === undefined)("Repo fishing nets integration", () => {

@@ -236,6 +236,11 @@ export function getActiveTimeEventNow(timeZone: string, nowMs: number = Date.now
   return getActiveTimeEvent(new Date(nowMs), timeZone);
 }
 
+/** Whether a persisted event occurrence identity refers to this active event. */
+export function isTimeEventOccurrence(active: ActiveTimeEvent, occurrence: { eventId: string; startedAt: number } | null): boolean {
+  return occurrence !== null && occurrence.eventId === active.event.id && occurrence.startedAt === active.startsAt.getTime() / 1000;
+}
+
 /** New cooldown duration during an event, rounded up to a whole second. */
 export function eventCooldownSeconds(catchDelaySeconds: number, modifiers: FishingModifiers): number {
   return Math.ceil(catchDelaySeconds / modifiers.cooldownDivisor);

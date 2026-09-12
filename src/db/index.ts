@@ -10,6 +10,8 @@ export type CooldownEntry = { lastCatchTime: number; delaySeconds: number };
 export type CooldownRow = { userId: number; firstName: string; lastCatchTime: number; delaySeconds: number };
 /** The last time event announced to the chats, keyed by event id and start. */
 export type TimeEventAnnouncement = { eventId: string; startedAt: number };
+/** A manually stopped event occurrence, keyed by event id and start. */
+export type TimeEventStop = { eventId: string; startedAt: number };
 export type TopFisherRow = { firstName: string; total: number };
 /** Modifier columns stored alongside a catch; null for unmodified fish. */
 export type FishModifierFields = {
@@ -228,6 +230,11 @@ const SCHEMA_STATEMENTS = [
     event_id TEXT NOT NULL,
     started_at DOUBLE PRECISION NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS time_event_stops (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    event_id TEXT NOT NULL,
+    started_at DOUBLE PRECISION NOT NULL
+  )`,
 ];
 
 export function createSql(databaseUrl: string): SQL {
@@ -328,6 +335,8 @@ export type Repo = {
   listCatchTimes(chatId: number, defaultDelaySeconds: number): Promise<CooldownRow[]>;
   getTimeEventAnnouncement(): Promise<TimeEventAnnouncement | null>;
   setTimeEventAnnouncement(eventId: string, startedAt: number): Promise<void>;
+  getTimeEventStop(): Promise<TimeEventStop | null>;
+  setTimeEventStop(eventId: string, startedAt: number): Promise<void>;
   grantChanceUp(userId: number, chatId: number): Promise<void>;
   hasChanceUp(userId: number, chatId: number): Promise<boolean>;
   consumeChanceUp(userId: number, chatId: number): Promise<boolean>;
@@ -464,6 +473,18 @@ export function createRepo(sql: SQL): Repo {
     },
     async setTimeEventAnnouncement(eventId: string, startedAt: number): Promise<void> {
       await sql`INSERT INTO time_event_announcements (id, event_id, started_at)
+        VALUES (1, ${eventId}, ${startedAt})
+        ON CONFLICT (id) DO UPDATE SET
+          event_id = EXCLUDED.event_id,
+          started_at = EXCLUDED.started_at`;
+    },
+    async getTimeEventStop(): Promise<TimeEventStop | null> {
+      const rows = (await sql`SELECT event_id, started_at FROM time_event_stops WHERE id = 1`) as Array<Record<string, unknown>>;
+      const row = rows[0];
+      return row === undefined ? null : { eventId: String(row.event_id), startedAt: asNumber(row.started_at) };
+    },
+    async setTimeEventStop(eventId: string, startedAt: number): Promise<void> {
+      await sql`INSERT INTO time_event_stops (id, event_id, started_at)
         VALUES (1, ${eventId}, ${startedAt})
         ON CONFLICT (id) DO UPDATE SET
           event_id = EXCLUDED.event_id,

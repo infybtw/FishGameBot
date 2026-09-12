@@ -2,7 +2,7 @@ import type { Api } from "grammy";
 import type { Repo, TimeEventAnnouncement } from "../../db/index.ts";
 import { log } from "../../logger.ts";
 import { eventStartMessage } from "./messages.ts";
-import { getActiveTimeEvent, type ActiveTimeEvent } from "./time-events.ts";
+import { getActiveTimeEvent, isTimeEventOccurrence, type ActiveTimeEvent } from "./time-events.ts";
 
 /** How often the notifier polls for a changed active event. */
 export const TIME_EVENT_POLL_INTERVAL_MS = 60_000;
@@ -10,10 +10,6 @@ export const TIME_EVENT_POLL_INTERVAL_MS = 60_000;
 /** The occurrence identity stored after announcing, so restarts never re-announce. */
 function occurrence(active: ActiveTimeEvent): TimeEventAnnouncement {
   return { eventId: active.event.id, startedAt: active.startsAt.getTime() / 1000 };
-}
-
-function sameOccurrence(a: TimeEventAnnouncement, b: TimeEventAnnouncement): boolean {
-  return a.eventId === b.eventId && a.startedAt === b.startedAt;
 }
 
 /**
@@ -27,8 +23,9 @@ export async function announceActiveTimeEvent(repo: Repo, api: Api, timeZone: st
   const active = getActiveTimeEvent(now, timeZone);
   if (active === null) return null;
   const occurrence_ = occurrence(active);
+  if (isTimeEventOccurrence(active, await repo.getTimeEventStop())) return null;
   const announced = await repo.getTimeEventAnnouncement();
-  if (announced !== null && sameOccurrence(announced, occurrence_)) return null;
+  if (isTimeEventOccurrence(active, announced)) return null;
 
   const chatIds = await repo.listChatIds();
   for (const chatId of chatIds) {

@@ -190,6 +190,11 @@ export function eventStartMessage(active: ActiveTimeEvent, timeZone: string): st
   );
 }
 
+/** Confirmation for an owner who stopped the currently active occurrence. */
+export function eventStoppedMessage(active: ActiveTimeEvent): string {
+  return `⏹ <b>Событие «${escapeHtml(active.event.name)}» остановлено.</b> Следующий запуск пройдёт по расписанию.`;
+}
+
 /** Public /events reply: the full recurring schedule with the running event marked. */
 export function eventScheduleMessage(timeZone: string, activeEventId: string | null = null): string {
   const rows = TIME_EVENTS.map((event) => {

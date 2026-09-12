@@ -10,8 +10,14 @@ function msk(year: number, month: number, day: number, hour: number, minute = 0)
   return new Date(Date.UTC(year, month - 1, day, hour - 3, minute));
 }
 
-function createRepo(chats: number[]): { repo: Repo; setAnnouncement: (a: TimeEventAnnouncement | null) => void; getAnnouncement: () => TimeEventAnnouncement | null } {
+function createRepo(chats: number[]): {
+  repo: Repo;
+  setAnnouncement: (a: TimeEventAnnouncement | null) => void;
+  setStop: (a: TimeEventAnnouncement | null) => void;
+  getAnnouncement: () => TimeEventAnnouncement | null;
+} {
   let stored: TimeEventAnnouncement | null = null;
+  let stopped: TimeEventAnnouncement | null = null;
   const repo = {
     async listChatIds() {
       return chats;
@@ -22,11 +28,17 @@ function createRepo(chats: number[]): { repo: Repo; setAnnouncement: (a: TimeEve
     async setTimeEventAnnouncement(eventId: string, startedAt: number) {
       stored = { eventId, startedAt };
     },
+    async getTimeEventStop() {
+      return stopped;
+    },
   } as unknown as Repo;
   return {
     repo,
     setAnnouncement: (value) => {
       stored = value;
+    },
+    setStop: (value) => {
+      stopped = value;
     },
     getAnnouncement: () => stored,
   };
@@ -122,6 +134,16 @@ describe("announceActiveTimeEvent", () => {
 
     expect(await announceActiveTimeEvent(repo, api, TZ, msk(2026, 9, 9, 10, 0))).toBeNull();
 
+    expect(sends).toHaveLength(0);
+    expect(getAnnouncement()).toBeNull();
+  });
+
+  test("does not announce an occurrence stopped by the admin", async () => {
+    const { repo, setStop, getAnnouncement } = createRepo([-100]);
+    setStop({ eventId: "calm", startedAt: Date.UTC(2026, 8, 9, 12, 0) / 1000 });
+    const { api, sends } = createApi();
+
+    expect(await announceActiveTimeEvent(repo, api, TZ, msk(2026, 9, 9, 15, 30))).toBeNull();
     expect(sends).toHaveLength(0);
     expect(getAnnouncement()).toBeNull();
   });

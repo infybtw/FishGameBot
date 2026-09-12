@@ -31,6 +31,7 @@ const OWNER_GROUP_COMMANDS: BotCommand[] = [
   { command: "fakefish", description: "Тестовая карта улова" },
   { command: "aprofile", description: "Профиль игрока (реплаем)" },
   { command: "cclear", description: "Удалить сообщения и команды" },
+  { command: "event_stop", description: "Остановить текущее событие" },
 ];
 
 /** Owner-only catalog maintenance commands, usable anywhere. */

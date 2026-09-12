@@ -25,6 +25,7 @@ import {
   cooldownMsg,
   cooldownReset,
   cooldownsResetAll,
+  eventStoppedMessage,
   eventScheduleMessage,
   eventStatusMessage,
   fishCatalogMessage,
@@ -45,6 +46,7 @@ import {
   getActiveTimeEventNow,
   getFishingModifiers,
   getNextTimeEvent,
+  isTimeEventOccurrence,
 } from "./time-events.ts";
 
 const FAKE_FISH_POINTS = [5, 6] as const;
@@ -119,7 +121,8 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
 
     // Modifiers are resolved once per attempt so the cooldown check and the
     // stored cooldown duration always describe the same attempt.
-    const activeEvent = getActiveTimeEventNow(cfg.eventTimeZone);
+    const scheduledEvent = getActiveTimeEventNow(cfg.eventTimeZone);
+    const activeEvent = scheduledEvent !== null && isTimeEventOccurrence(scheduledEvent, await repo.getTimeEventStop()) ? null : scheduledEvent;
     const modifiers = getFishingModifiers(activeEvent);
     const cooldown = await checkCooldown(repo, cfg, userId, chatId, eventCooldownSeconds(cfg.catchDelaySeconds, modifiers));
     if (!cooldown.ok) {
@@ -346,7 +349,8 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
       return;
     }
     const now = new Date(Date.now());
-    const active = getActiveTimeEvent(now, cfg.eventTimeZone);
+    const scheduled = getActiveTimeEvent(now, cfg.eventTimeZone);
+    const active = scheduled !== null && isTimeEventOccurrence(scheduled, await repo.getTimeEventStop()) ? null : scheduled;
     const next = getNextTimeEvent(now, cfg.eventTimeZone);
     log.debug({ chatId: ctx.chat.id, eventId: active === null ? null : active.event.id }, "Event status requested");
     await ctx.reply(eventStatusMessage(active, next, cfg.eventTimeZone));
@@ -357,9 +361,25 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
       logIgnored(ctx, "not a group chat");
       return;
     }
-    const active = getActiveTimeEvent(new Date(Date.now()), cfg.eventTimeZone);
+    const scheduled = getActiveTimeEvent(new Date(Date.now()), cfg.eventTimeZone);
+    const active = scheduled !== null && isTimeEventOccurrence(scheduled, await repo.getTimeEventStop()) ? null : scheduled;
     log.debug({ chatId: ctx.chat.id, eventId: active === null ? null : active.event.id }, "Event schedule requested");
     await ctx.reply(eventScheduleMessage(cfg.eventTimeZone, active === null ? null : active.event.id));
+  });
+
+  bot.command("event_stop", async (ctx) => {
+    if (!isAdminInGroup(ctx, cfg)) {
+      logIgnored(ctx, "not a group chat or sender is not the admin");
+      return;
+    }
+    const active = getActiveTimeEvent(new Date(Date.now()), cfg.eventTimeZone);
+    if (active === null) {
+      await ctx.reply("Сейчас нет активного события.");
+      return;
+    }
+    await repo.setTimeEventStop(active.event.id, active.startsAt.getTime() / 1000);
+    log.info({ chatId: ctx.chat.id, eventId: active.event.id }, "Time event stopped by admin");
+    await ctx.reply(eventStoppedMessage(active));
   });
 
   bot.command("fishtop", async (ctx) => {
