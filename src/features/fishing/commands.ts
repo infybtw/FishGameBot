@@ -134,7 +134,9 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     // Runs on every allowed attempt: a user who catches nothing still appears in top with 0.
     await repo.ensureFisher(userId, chatId, firstName);
     const rod = getRod((await repo.getEquippedRodId(userId, chatId)) ?? "basic") ?? getRod("basic")!;
-    const successChance = Math.min(100, cfg.catchSuccessChance + rod.catchBonusPoints + modifiers.successChanceBonusPoints);
+    const rodCatchBonus = modifiers.rodBuffsEnabled ? rod.catchBonusPoints : 0;
+    const rodRarityBonus = modifiers.rodBuffsEnabled ? rod.rarityStepBonus : 0;
+    const successChance = Math.min(100, cfg.catchSuccessChance + rodCatchBonus + modifiers.successChanceBonusPoints);
     let fish: CaughtFish | null;
     let boosted = false;
     const rarityWeights = modifiers.guaranteedRarityWeights ?? modifiers.rarityWeights ?? undefined;
@@ -148,9 +150,9 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
           };
     if (chanceUp && modifiers.guaranteedRarityWeights === null && (await repo.consumeChanceUp(userId, chatId))) {
       boosted = true;
-      fish = boostedCatch(catalog, firstName, rod.rarityStepBonus, cfg.fishModifierDropChance, priceModifier);
+      fish = boostedCatch(catalog, firstName, rodRarityBonus, cfg.fishModifierDropChance, priceModifier);
     } else {
-      fish = tryCatch(catalog, firstName, successChance, rod.rarityStepBonus, cfg.fishModifierDropChance, rarityWeights, priceModifier);
+      fish = tryCatch(catalog, firstName, successChance, rodRarityBonus, cfg.fishModifierDropChance, rarityWeights, priceModifier);
     }
     if (fish === null) {
       log.info(

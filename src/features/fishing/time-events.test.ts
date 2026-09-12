@@ -26,10 +26,10 @@ const WEDNESDAY = { year: 2026, month: 9, day: 9 };
 const SATURDAY = { year: 2026, month: 9, day: 12 };
 
 describe("getActiveTimeEvent boundaries", () => {
-  test("dawn bite runs on [06:00, 08:00)", () => {
+  test("rod blackout runs on [06:00, 08:00)", () => {
     expect(activeEvent(msk(WEDNESDAY.year, 9, 9, 5, 59, 59))).toBeNull();
-    expect(activeEvent(msk(WEDNESDAY.year, 9, 9, 6, 0, 0))?.id).toBe("dawn_bite");
-    expect(activeEvent(msk(WEDNESDAY.year, 9, 9, 7, 59, 59))?.id).toBe("dawn_bite");
+    expect(activeEvent(msk(WEDNESDAY.year, 9, 9, 6, 0, 0))?.id).toBe("rod_blackout");
+    expect(activeEvent(msk(WEDNESDAY.year, 9, 9, 7, 59, 59))?.id).toBe("rod_blackout");
     expect(activeEvent(msk(WEDNESDAY.year, 9, 9, 8, 0, 0))).toBeNull();
   });
 
@@ -66,8 +66,8 @@ describe("getActiveTimeEvent boundaries", () => {
 describe("getActiveTimeEvent UTC conversion", () => {
   test("resolves Moscow windows from UTC instants", () => {
     // 06:00 MSK is 03:00 UTC.
-    expect(getActiveTimeEvent(new Date("2026-09-09T03:00:00Z"), TZ)?.event.id).toBe("dawn_bite");
-    expect(getActiveTimeEvent(new Date("2026-09-09T04:59:59Z"), TZ)?.event.id).toBe("dawn_bite");
+    expect(getActiveTimeEvent(new Date("2026-09-09T03:00:00Z"), TZ)?.event.id).toBe("rod_blackout");
+    expect(getActiveTimeEvent(new Date("2026-09-09T04:59:59Z"), TZ)?.event.id).toBe("rod_blackout");
     expect(getActiveTimeEvent(new Date("2026-09-09T05:00:00Z"), TZ)).toBeNull();
     // 12:00 MSK is 09:00 UTC.
     expect(getActiveTimeEvent(new Date("2026-09-09T09:00:00Z"), TZ)?.event.id).toBe("golden_hour");
@@ -108,17 +108,17 @@ describe("getNextTimeEvent", () => {
     expect(next.endsAt.toISOString()).toBe("2026-09-11T23:00:00.000Z");
   });
 
-  test("moves past the running event to the same-day dawn bite", () => {
-    // Saturday 00:30 MSK, inside moon pool: dawn bite starts at 06:00 MSK.
+  test("moves past the running event to the same-day rod blackout", () => {
+    // Saturday 00:30 MSK, inside moon pool: rod blackout starts at 06:00 MSK.
     const next = getNextTimeEvent(msk(SATURDAY.year, 9, 12, 0, 30), TZ);
-    expect(next.event.id).toBe("dawn_bite");
+    expect(next.event.id).toBe("rod_blackout");
     expect(next.startsAt.toISOString()).toBe("2026-09-12T03:00:00.000Z");
   });
 
   test("rolls over to the next day after the last window", () => {
     const next = getNextTimeEvent(msk(2026, 9, 9, 23, 59, 59), TZ);
     // Thursday 00:00 MSK is a weekday, so the moon pool is skipped.
-    expect(next.event.id).toBe("dawn_bite");
+    expect(next.event.id).toBe("rod_blackout");
     expect(next.startsAt.toISOString()).toBe("2026-09-10T03:00:00.000Z");
   });
 });
@@ -131,7 +131,7 @@ describe("fishing modifiers", () => {
 
   test("each event exposes only its own effect", () => {
     const byId = new Map(TIME_EVENTS.map((event) => [event.id, event]));
-    expect(byId.get("dawn_bite")!.modifiers).toEqual({ ...NEUTRAL_MODIFIERS, successChanceBonusPoints: 20 });
+    expect(byId.get("rod_blackout")!.modifiers).toEqual({ ...NEUTRAL_MODIFIERS, rodBuffsEnabled: false });
     expect(byId.get("golden_hour")!.modifiers.rarityWeights).toEqual({ 1: 45, 2: 30, 3: 15, 4: 7, 5: 2.5, 6: 0.5 });
     expect(byId.get("calm")!.modifiers).toEqual({ ...NEUTRAL_MODIFIERS, cooldownDivisor: 2 });
     expect(byId.get("night_trophy")!.modifiers).toEqual({

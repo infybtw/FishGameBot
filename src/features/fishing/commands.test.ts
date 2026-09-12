@@ -905,19 +905,19 @@ function mskMs(year: number, month: number, day: number, hour: number, minute = 
   return Date.UTC(year, month - 1, day, hour - 3, minute);
 }
 
-test("/fish during Рассветный клёв adds +20 percentage points to the success chance", async () => {
+test("/fish during Сбой снастей does not add the former dawn bonus", async () => {
   setCatalog(FULL_CATALOG);
   const cfg: Config = { ...CFG, catchSuccessChance: 50, catchDelaySeconds: 3600 };
   const { bot, sentTexts, repo } = createTestBot(cfg);
   // Wednesday 06:30 MSK, inside the [06:00, 08:00) window.
   const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 6, 30));
 
-  // 60 < 70 only succeeds with the event bonus; the base chance of 50 would miss.
+  // The former dawn bonus would make this catch succeed, but the blackout does not.
   mockRandom([0.6, 0, 0, ...SIZE_RANDOMS]);
   await bot.handleUpdate(commandUpdate({ updateId: 400, text: "/fish", from: PLAYER }));
 
-  expect(repo.catches).toHaveLength(1);
-  expect(sentTexts[0]).toContain("Событие «Рассветный клёв»");
+  expect(repo.catches).toHaveLength(0);
+  expect(sentTexts[0]).toContain("ничего не поймал");
 
   nowSpy.mockRestore();
 });
@@ -929,10 +929,10 @@ test("/event_stop disables the active occurrence until its next scheduled start"
   const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 6, 30));
 
   await bot.handleUpdate(commandUpdate({ updateId: 405, text: "/event_stop", from: ADMIN }));
-  expect(repo.stoppedEvent).toEqual({ eventId: "dawn_bite", startedAt: mskMs(2026, 9, 9, 6) / 1000 });
-  expect(sentTexts[0]).toContain("Событие «Рассветный клёв» остановлено");
+  expect(repo.stoppedEvent).toEqual({ eventId: "rod_blackout", startedAt: mskMs(2026, 9, 9, 6) / 1000 });
+  expect(sentTexts[0]).toContain("Событие «Сбой снастей» остановлено");
 
-  // 60 would succeed with the dawn bonus, but fails after the stop.
+  // The stopped event no longer affects this attempt.
   mockRandom([0.6]);
   await bot.handleUpdate(commandUpdate({ updateId: 406, text: "/fish", from: PLAYER }));
   expect(repo.catches).toHaveLength(0);
@@ -940,10 +940,10 @@ test("/event_stop disables the active occurrence until its next scheduled start"
 
   // The following day's new occurrence has a different start and is active.
   nowSpy.mockReturnValue(mskMs(2026, 9, 10, 6, 30));
-  mockRandom([0.6, 0, 0, ...SIZE_RANDOMS]);
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS]);
   await bot.handleUpdate(commandUpdate({ updateId: 407, text: "/fish", from: PLAYER }));
   expect(repo.catches).toHaveLength(1);
-  expect(sentTexts[2]).toContain("Событие «Рассветный клёв»");
+  expect(sentTexts[2]).toContain("Событие «Сбой снастей»");
 
   nowSpy.mockRestore();
 });
@@ -976,20 +976,21 @@ test("/fish outside events keeps the base success chance", async () => {
   nowSpy.mockRestore();
 });
 
-test("/fish during Золотой час rolls rarity with the boosted weights", async () => {
+test("/fish during Сбой снастей ignores equipped rod bonuses", async () => {
   setCatalog(FULL_CATALOG);
   const cfg: Config = { ...CFG, catchDelaySeconds: 3600 };
   const { bot, sentTexts, repo } = createTestBot(cfg);
-  // Wednesday 12:30 MSK, inside the [12:00, 13:00) window.
-  const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 12, 30));
+  // Wednesday 06:30 MSK, inside the [06:00, 08:00) window.
+  const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 6, 30));
+  spyOn(repo, "getEquippedRodId").mockResolvedValue("titanium");
 
-  // 75.1 falls into golden hour point 3; under normal weights it would be point 2.
-  mockRandom([0, 0.751, 0, ...SIZE_RANDOMS]);
+  // 91.5% lands on point 3 with titanium's rarity boost, but point 2 without it.
+  mockRandom([0, 0.915, 0, ...SIZE_RANDOMS]);
   await bot.handleUpdate(commandUpdate({ updateId: 410, text: "/fish", from: PLAYER }));
 
-  expect(repo.catches[0]!.point).toBe(3);
-  expect(repo.catches[0]!.fishName).toBe("Карп");
-  expect(sentTexts[0]).toContain("Событие «Золотой час»");
+  expect(repo.catches[0]!.point).toBe(2);
+  expect(repo.catches[0]!.fishName).toBe("Лещ");
+  expect(sentTexts[0]).toContain("Событие «Сбой снастей»");
 
   nowSpy.mockRestore();
 });
@@ -1114,8 +1115,8 @@ test("/events lists the full schedule and marks the running event", async () => 
   expect(sentTexts[0]).toBe(
     "🎣 <b>Расписание событий</b>\n" +
       "<i>Время указано для часового пояса Europe/Moscow.</i>\n\n" +
-      "• 🌅 <b>Рассветный клёв</b> — каждый день, 06:00–08:00\n" +
-      "шанс успешной поклёвки +20 п.п.\n" +
+      "• ⚡ <b>Сбой снастей</b> — каждый день, 06:00–08:00\n" +
+      "бафы экипированной удочки не действуют\n" +
       "• ✨ <b>Золотой час</b> — каждый день, 12:00–13:00 — идёт сейчас\n" +
       "усиленные шансы редкой рыбы\n" +
       "• 🌊 <b>Штиль</b> — каждый день, 15:00–16:00\n" +

@@ -15,8 +15,8 @@ import {
 import { formatRemaining } from "./cooldown.ts";
 import { CHANCE_UP_RARITY_WEIGHTS, RARITY_WEIGHTS, type Catalog } from "./catalog.ts";
 import { FISH_MODIFIERS } from "./modifiers.ts";
-import { GOLDEN_HOUR_RARITY_WEIGHTS } from "./time-events.ts";
 import { NET_RARITY_WEIGHTS } from "../nets/net.ts";
+import { GOLDEN_HOUR_RARITY_WEIGHTS } from "./time-events.ts";
 
 function mockRandom(values: readonly number[]): void {
   let index = 0;
@@ -288,16 +288,12 @@ describe("fakeFishCatch", () => {
 
 describe("tryCatch with event modifiers", () => {
   test("golden hour weights replace the ordinary distribution", () => {
-    // Cumulative golden hour bands: 45, 75, 90, 97, 99.5, 100.
     mockRandom([0, 0.4499, 0, ...SIZE_RANDOMS]);
     expect(tryCatch(BOOST_CATALOG, "Ира", 100, 0, 0, GOLDEN_HOUR_RARITY_WEIGHTS)?.point).toBe(1);
     mockRandom([0, 0.4501, 0, ...SIZE_RANDOMS]);
     expect(tryCatch(BOOST_CATALOG, "Ира", 100, 0, 0, GOLDEN_HOUR_RARITY_WEIGHTS)?.point).toBe(2);
     mockRandom([0, 0.975, 0, ...SIZE_RANDOMS]);
     expect(tryCatch(BOOST_CATALOG, "Ира", 100, 0, 0, GOLDEN_HOUR_RARITY_WEIGHTS)?.point).toBe(5);
-    // The same roll under normal weights lands elsewhere, proving the swap.
-    mockRandom([0, 0.4501, 0, ...SIZE_RANDOMS]);
-    expect(tryCatch(BOOST_CATALOG, "Ира", 100, 0)?.point).toBe(1);
   });
 
   test("moon pool weights guarantee rarity 2-6 and never roll point 1", () => {

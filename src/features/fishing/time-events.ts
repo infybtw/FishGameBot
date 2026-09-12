@@ -6,7 +6,7 @@ import { CHANCE_UP_RARITY_WEIGHTS } from "./catalog.ts";
  * cooldown duration, or the reward. Player data and the fish catalog stay
  * untouched.
  */
-export type TimeEventId = "dawn_bite" | "golden_hour" | "calm" | "night_trophy" | "moon_pool";
+export type TimeEventId = "golden_hour" | "rod_blackout" | "calm" | "night_trophy" | "moon_pool";
 
 /** What an active event changes in a /fish attempt; neutral values change nothing. */
 export type FishingModifiers = {
@@ -22,6 +22,8 @@ export type FishingModifiers = {
   readonly priceMultiplierMaxPoint: number;
   /** When set, every successful catch rolls rarity with exactly these weights. */
   readonly guaranteedRarityWeights: Readonly<Record<number, number>> | null;
+  /** Whether catch-chance and rarity bonuses from the equipped rod apply. */
+  readonly rodBuffsEnabled: boolean;
 };
 
 /** One scheduled event: local [startHour, endHour) window on the listed weekdays. */
@@ -58,7 +60,11 @@ export const NEUTRAL_MODIFIERS: FishingModifiers = {
   priceMultiplierMinPoint: 1,
   priceMultiplierMaxPoint: 6,
   guaranteedRarityWeights: null,
+  rodBuffsEnabled: true,
 };
+
+const EVERY_DAY: readonly number[] = [0, 1, 2, 3, 4, 5, 6];
+const WEEKEND: readonly number[] = [0, 6];
 
 /** Golden hour redistributes rarity odds toward higher tiers; weights sum to 100. */
 export const GOLDEN_HOUR_RARITY_WEIGHTS: Readonly<Record<number, number>> = {
@@ -70,23 +76,20 @@ export const GOLDEN_HOUR_RARITY_WEIGHTS: Readonly<Record<number, number>> = {
   6: 0.5,
 };
 
-const EVERY_DAY: readonly number[] = [0, 1, 2, 3, 4, 5, 6];
-const WEEKEND: readonly number[] = [0, 6];
-
 /**
  * The immutable global schedule. Windows never overlap, never cross midnight,
  * and stay within one local day, so at most one event is active at a time.
  */
 export const TIME_EVENTS: readonly TimeEvent[] = Object.freeze([
   {
-    id: "dawn_bite",
-    name: "Рассветный клёв",
-    emoji: "🌅",
-    effect: "шанс успешной поклёвки +20 п.п.",
+    id: "rod_blackout",
+    name: "Сбой снастей",
+    emoji: "⚡",
+    effect: "бафы экипированной удочки не действуют",
     days: EVERY_DAY,
     startHour: 6,
     endHour: 8,
-    modifiers: { ...NEUTRAL_MODIFIERS, successChanceBonusPoints: 20 },
+    modifiers: { ...NEUTRAL_MODIFIERS, rodBuffsEnabled: false },
   },
   {
     id: "golden_hour",
