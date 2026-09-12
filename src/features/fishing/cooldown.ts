@@ -13,22 +13,25 @@ export function cooldownSecondsLeft(lastCatchTime: number, delaySeconds: number,
 
 /**
  * Cooldown starts on every allowed attempt, whether or not a fish is caught.
+ * `delaySeconds` is the actual duration of the new cooldown, so an event may
+ * shorten it; cooldowns started earlier keep their own stored duration.
  */
 export async function checkCooldown(
   repo: Repo,
   cfg: Config,
   userId: number,
   chatId: number,
+  delaySeconds: number,
 ): Promise<CooldownCheck> {
   const now = Date.now() / 1000;
-  const last = await repo.getCatchTime(userId, chatId);
+  const last = await repo.getCatchTime(userId, chatId, cfg.catchDelaySeconds);
   if (last === null) {
-    await repo.upsertCatchTime(userId, chatId, now);
+    await repo.upsertCatchTime(userId, chatId, now, delaySeconds);
     return { ok: true, startedAt: now };
   }
-  const secondsLeft = cooldownSecondsLeft(last, cfg.catchDelaySeconds, now);
+  const secondsLeft = cooldownSecondsLeft(last.lastCatchTime, last.delaySeconds, now);
   if (secondsLeft < 0) {
-    await repo.upsertCatchTime(userId, chatId, now);
+    await repo.upsertCatchTime(userId, chatId, now, delaySeconds);
     return { ok: true, startedAt: now };
   }
   return { ok: false, secondsLeft };

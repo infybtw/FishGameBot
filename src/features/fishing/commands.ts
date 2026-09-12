@@ -9,7 +9,7 @@ import { getRod } from "../upgrades/rods.ts";
 import { CHANCE_UP_POINTS, getCatalog, hasRarityGroup } from "./catalog.ts";
 import { checkCooldown, cooldownSecondsLeft } from "./cooldown.ts";
 import { rollBalanceMultiplier, rollCurse, type Curse } from "./curses.ts";
-import { boostedCatch, fakeFishCatch, tryCatch, type CaughtFish } from "./generator.ts";
+import { boostedCatch, fakeFishCatch, tryCatch, type CaughtFish, type PriceModifier } from "./generator.ts";
 import {
   CDR_USAGE,
   CHANCE_UP_CATALOG_EMPTY,
@@ -23,6 +23,8 @@ import {
   cooldownMsg,
   cooldownReset,
   cooldownsResetAll,
+  eventScheduleMessage,
+  eventStatusMessage,
   fishCatalogMessage,
   goldenScalesCurse,
   heavyNetCurse,
@@ -34,6 +36,13 @@ import {
   statsMsg,
   topFishers,
 } from "./messages.ts";
+import {
+  eventCooldownSeconds,
+  getActiveTimeEvent,
+  getActiveTimeEventNow,
+  getFishingModifiers,
+  getNextTimeEvent,
+} from "./time-events.ts";
 
 const FAKE_FISH_POINTS = [5, 6] as const;
 
@@ -61,7 +70,7 @@ async function applyCurse(
     case "heavy_net": {
       // Normal expiry adds CATCH_DELAY to the stored timestamp, so rewriting
       // startedAt + delay makes this catch take exactly CATCH_DELAY * 2.
-      await repo.upsertCatchTime(userId, chatId, cooldownStartedAt + cfg.catchDelaySeconds);
+      await repo.upsertCatchTime(userId, chatId, cooldownStartedAt + cfg.catchDelaySeconds, cfg.catchDelaySeconds);
       return heavyNetCurse(cfg.catchDelaySeconds);
     }
     case "second_cast": {
@@ -96,7 +105,11 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
       return;
     }
 
-    const cooldown = await checkCooldown(repo, cfg, userId, chatId);
+    // Modifiers are resolved once per attempt so the cooldown check and the
+    // stored cooldown duration always describe the same attempt.
+    const activeEvent = getActiveTimeEventNow(cfg.eventTimeZone);
+    const modifiers = getFishingModifiers(activeEvent);
+    const cooldown = await checkCooldown(repo, cfg, userId, chatId, eventCooldownSeconds(cfg.catchDelaySeconds, modifiers));
     if (!cooldown.ok) {
       log.info({ userId, chatId, secondsLeft: cooldown.secondsLeft }, "Catch attempt blocked by cooldown");
       await ctx.reply(cooldownMsg(firstName, cooldown.secondsLeft));
@@ -106,17 +119,34 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     // Runs on every allowed attempt: a user who catches nothing still appears in top with 0.
     await repo.ensureFisher(userId, chatId, firstName);
     const rod = getRod((await repo.getEquippedRodId(userId, chatId)) ?? "basic") ?? getRod("basic")!;
-    const successChance = Math.min(100, cfg.catchSuccessChance + rod.catchBonusPoints);
+    const successChance = Math.min(100, cfg.catchSuccessChance + rod.catchBonusPoints + modifiers.successChanceBonusPoints);
     let fish: CaughtFish | null;
     let boosted = false;
-    if (chanceUp && (await repo.consumeChanceUp(userId, chatId))) {
+    const rarityWeights = modifiers.guaranteedRarityWeights ?? modifiers.rarityWeights ?? undefined;
+    const priceModifier: PriceModifier | undefined =
+      modifiers.priceMultiplier === 1
+        ? undefined
+        : {
+            multiplier: modifiers.priceMultiplier,
+            minPoint: modifiers.priceMultiplierMinPoint,
+            maxPoint: modifiers.priceMultiplierMaxPoint,
+          };
+    if (chanceUp && modifiers.guaranteedRarityWeights === null && (await repo.consumeChanceUp(userId, chatId))) {
       boosted = true;
-      fish = boostedCatch(catalog, firstName, rod.rarityStepBonus, cfg.fishModifierDropChance);
+      fish = boostedCatch(catalog, firstName, rod.rarityStepBonus, cfg.fishModifierDropChance, priceModifier);
     } else {
-      fish = tryCatch(catalog, firstName, successChance, rod.rarityStepBonus, cfg.fishModifierDropChance);
+      fish = tryCatch(catalog, firstName, successChance, rod.rarityStepBonus, cfg.fishModifierDropChance, rarityWeights, priceModifier);
     }
     if (fish === null) {
-      log.info({ userId, chatId }, "Catch attempt finished without a fish");
+      log.info(
+        {
+          userId,
+          chatId,
+          eventId: activeEvent === null ? null : activeEvent.event.id,
+          modifiers: { ...modifiers, guaranteedRarityWeights: modifiers.guaranteedRarityWeights === null ? null : { ...modifiers.guaranteedRarityWeights } },
+        },
+        "Catch attempt finished without a fish",
+      );
       await ctx.reply(nothingCaught(firstName));
       return;
     }
@@ -148,17 +178,19 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
         fishModifier: fish.modifier?.id ?? null,
         boosted,
         rodId: rod.id,
+        eventId: activeEvent === null ? null : activeEvent.event.id,
+        modifiers: { ...modifiers, guaranteedRarityWeights: modifiers.guaranteedRarityWeights === null ? null : { ...modifiers.guaranteedRarityWeights } },
       },
       "Fish caught",
     );
     const curse = rollCurse(cfg.curseDropChance);
     if (curse === null) {
-      await ctx.reply(catchCard(fish));
+      await ctx.reply(catchCard(fish, activeEvent === null ? null : activeEvent.event));
       return;
     }
     const curseText = await applyCurse(curse, repo, cfg, userId, chatId, cooldown.startedAt);
     log.info({ userId, chatId, curse: curse.kind }, "Curse applied");
-    await ctx.reply(`${catchCard(fish)}\n\n${curseText}`);
+    await ctx.reply(`${catchCard(fish, activeEvent === null ? null : activeEvent.event)}\n\n${curseText}`);
   });
 
   bot.command("cdr", async (ctx) => {
@@ -191,13 +223,13 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
       logIgnored(ctx, "not a group chat or sender is not the admin");
       return;
     }
-    const rows = await repo.listCatchTimes(ctx.chat.id);
+    const rows = await repo.listCatchTimes(ctx.chat.id, cfg.catchDelaySeconds);
     const now = Date.now() / 1000;
     log.debug({ chatId: ctx.chat.id, rows: rows.length }, "Cooldowns listed");
     await ctx.reply(
       cooldownList(
         rows.map((row) => {
-          const secondsLeft = cooldownSecondsLeft(row.lastCatchTime, cfg.catchDelaySeconds, now);
+          const secondsLeft = cooldownSecondsLeft(row.lastCatchTime, row.delaySeconds, now);
           return { firstName: row.firstName, minutesLeft: secondsLeft > 0 ? Math.ceil(secondsLeft / 60) : 0 };
         }),
       ),
@@ -273,6 +305,28 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
       "Catch removed",
     );
     await ctx.reply(lastCatchRemoved(target.firstName, removed));
+  });
+
+  bot.command("event", async (ctx) => {
+    if (!isGroup(ctx)) {
+      logIgnored(ctx, "not a group chat");
+      return;
+    }
+    const now = new Date(Date.now());
+    const active = getActiveTimeEvent(now, cfg.eventTimeZone);
+    const next = getNextTimeEvent(now, cfg.eventTimeZone);
+    log.debug({ chatId: ctx.chat.id, eventId: active === null ? null : active.event.id }, "Event status requested");
+    await ctx.reply(eventStatusMessage(active, next, cfg.eventTimeZone));
+  });
+
+  bot.command("events", async (ctx) => {
+    if (!isGroup(ctx)) {
+      logIgnored(ctx, "not a group chat");
+      return;
+    }
+    const active = getActiveTimeEvent(new Date(Date.now()), cfg.eventTimeZone);
+    log.debug({ chatId: ctx.chat.id, eventId: active === null ? null : active.event.id }, "Event schedule requested");
+    await ctx.reply(eventScheduleMessage(cfg.eventTimeZone, active === null ? null : active.event.id));
   });
 
   bot.command("fishtop", async (ctx) => {

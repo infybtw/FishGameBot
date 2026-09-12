@@ -17,6 +17,7 @@ const CFG: Config = {
   catchDelaySeconds: 0,
   curseDropChance: 0,
   fishModifierDropChance: 0,
+  eventTimeZone: "Europe/Moscow",
   databaseUrl: "postgres://localhost/fishbot_test",
 };
 
@@ -70,20 +71,29 @@ function commandUpdate(spec: UpdateSpec): Update {
 
 type FakeFisher = { userId: number; chatId: number; firstName: string; balance: number };
 
+type FakeCooldown = { lastCatchTime: number; delaySeconds: number };
+
 type FakeRepo = Repo & {
   calls: string[];
   fishers: Map<string, FakeFisher>;
-  catchTimes: Map<string, number>;
+  catchTimes: Map<string, FakeCooldown>;
   chanceUps: Set<string>;
   catches: CatchInsert[];
+  announcements: { eventId: string; startedAt: number } | null;
 };
+
+/** Fake stored cooldown pair; CATCH_DELAY substitute defaults to one hour. */
+function cd(lastCatchTime: number, delaySeconds = 3_600): FakeCooldown {
+  return { lastCatchTime, delaySeconds };
+}
 
 function createFakeRepo(): FakeRepo {
   const calls: string[] = [];
   const fishers = new Map<string, FakeFisher>();
-  const catchTimes = new Map<string, number>();
+  const catchTimes = new Map<string, FakeCooldown>();
   const chanceUps = new Set<string>();
   const catches: CatchInsert[] = [];
+  let announcements: { eventId: string; startedAt: number } | null = null;
   const key = (userId: number, chatId: number) => `${userId}:${chatId}`;
   const unexpected = (name: string): never => {
     throw new Error(`Unexpected repo call in test: ${name}`);
@@ -94,6 +104,12 @@ function createFakeRepo(): FakeRepo {
     catchTimes,
     chanceUps,
     catches,
+    get announcements() {
+      return announcements;
+    },
+    set announcements(value: { eventId: string; startedAt: number } | null) {
+      announcements = value;
+    },
     async ensureFisher(userId, chatId, firstName) {
       calls.push("ensureFisher");
       if (!fishers.has(key(userId, chatId))) {
@@ -123,13 +139,15 @@ function createFakeRepo(): FakeRepo {
         fishModifierRarity: removed.fishModifierRarity,
       };
     },
-    async getCatchTime(userId, chatId) {
+    async getCatchTime(userId, chatId, defaultDelaySeconds) {
       calls.push("getCatchTime");
-      return catchTimes.get(key(userId, chatId)) ?? null;
+      const stored = catchTimes.get(key(userId, chatId));
+      if (stored === undefined) return null;
+      return { lastCatchTime: stored.lastCatchTime, delaySeconds: stored.delaySeconds ?? defaultDelaySeconds };
     },
-    async upsertCatchTime(userId, chatId, unixSeconds) {
+    async upsertCatchTime(userId, chatId, unixSeconds, delaySeconds) {
       calls.push("upsertCatchTime");
-      catchTimes.set(key(userId, chatId), unixSeconds);
+      catchTimes.set(key(userId, chatId), { lastCatchTime: unixSeconds, delaySeconds });
     },
     async deleteCatchTime(userId, chatId) {
       calls.push("deleteCatchTime");
@@ -156,15 +174,28 @@ function createFakeRepo(): FakeRepo {
       fisher.balance = fisher.balance * multiplier;
       return fisher.balance;
     },
-    async listCatchTimes(chatId) {
+    async listCatchTimes(chatId, defaultDelaySeconds) {
       calls.push("listCatchTimes");
       const rows: CooldownRow[] = [];
-      for (const [rowKey, lastCatchTime] of catchTimes) {
+      for (const [rowKey, cooldown] of catchTimes) {
         const fisher = fishers.get(rowKey);
         if (fisher === undefined || fisher.chatId !== chatId) continue;
-        rows.push({ userId: fisher.userId, firstName: fisher.firstName, lastCatchTime });
+        rows.push({
+          userId: fisher.userId,
+          firstName: fisher.firstName,
+          lastCatchTime: cooldown.lastCatchTime,
+          delaySeconds: cooldown.delaySeconds ?? defaultDelaySeconds,
+        });
       }
       return rows.sort((a, b) => a.firstName.localeCompare(b.firstName) || a.userId - b.userId);
+    },
+    async getTimeEventAnnouncement() {
+      calls.push("getTimeEventAnnouncement");
+      return announcements;
+    },
+    async setTimeEventAnnouncement(eventId, startedAt) {
+      calls.push("setTimeEventAnnouncement");
+      announcements = { eventId, startedAt };
     },
     async grantChanceUp(userId, chatId) {
       calls.push("grantChanceUp");
@@ -386,9 +417,9 @@ test("/fishes is ignored in private chats", async () => {
 
 test("/cdr removes only the replied player's cooldown in the current chat", async () => {
   const { bot, sentTexts, repo } = createTestBot();
-  repo.catchTimes.set("9:-100", 1_000);
-  repo.catchTimes.set("9:-200", 1_000);
-  repo.catchTimes.set("8:-100", 1_000);
+  repo.catchTimes.set("9:-100", cd(1_000));
+  repo.catchTimes.set("9:-200", cd(1_000));
+  repo.catchTimes.set("8:-100", cd(1_000));
 
   await bot.handleUpdate(commandUpdate({ updateId: 3, text: "/cdr", from: ADMIN, replyTo: PLAYER }));
 
@@ -439,9 +470,9 @@ test("admin commands from non-owners or in private chats are silently ignored", 
 
 test("/cdr_all removes every cooldown in the current chat only", async () => {
   const { bot, sentTexts, repo } = createTestBot();
-  repo.catchTimes.set("9:-100", 1_000);
-  repo.catchTimes.set("8:-100", 1_000);
-  repo.catchTimes.set("9:-200", 1_000);
+  repo.catchTimes.set("9:-100", cd(1_000));
+  repo.catchTimes.set("8:-100", cd(1_000));
+  repo.catchTimes.set("9:-200", cd(1_000));
 
   await bot.handleUpdate(commandUpdate({ updateId: 202, text: "/cdr_all", from: ADMIN }));
 
@@ -524,8 +555,8 @@ test("/cd lists ceiling minutes for active cooldowns and 0 for expired ones", as
   const nowSpy = spyOn(Date, "now").mockReturnValue(now * 1000);
   repo.fishers.set("8:-100", { userId: 8, chatId: -100, firstName: "Анна<script>", balance: 0 });
   repo.fishers.set("9:-100", { userId: 9, chatId: -100, firstName: "Боб", balance: 0 });
-  repo.catchTimes.set("8:-100", now - 7200);
-  repo.catchTimes.set("9:-100", now - 1801);
+  repo.catchTimes.set("8:-100", cd(now - 7200, 3600));
+  repo.catchTimes.set("9:-100", cd(now - 1801, 3600));
 
   await bot.handleUpdate(commandUpdate({ updateId: 14, text: "/cd", from: ADMIN }));
 
@@ -608,7 +639,7 @@ test("/fish keeps a granted bonus across a blocked attempt and consumes it on th
   await bot.handleUpdate(commandUpdate({ updateId: 22, text: "/chanceup", from: ADMIN, replyTo: PLAYER }));
 
   // Mid-cooldown attempt: blocked, bonus untouched, no consumption attempted.
-  repo.catchTimes.set("9:-100", start - 1800);
+  repo.catchTimes.set("9:-100", cd(start - 1800, 3600));
   mockRandom([]);
   await bot.handleUpdate(commandUpdate({ updateId: 23, text: "/fish", from: PLAYER }));
   expect(sentTexts.at(-1)).toContain("Вы недавно ловили рыбу");
@@ -688,7 +719,7 @@ test("/fish heavy_net curse doubles the fresh cooldown while the catch stays ava
     "\n\n🪢 <b>Проклятие тяжёлой сети</b>\nКулдаун увеличен до 2часов 0минут 0секунд.",
   )).toBe(true);
   expect(repo.catches).toHaveLength(1);
-  expect(repo.catchTimes.get("9:-100")).toBe(start + 3600);
+  expect(repo.catchTimes.get("9:-100")).toEqual({ lastCatchTime: start + 3600, delaySeconds: 3600 });
 
   // One normal hour later: still inside the doubled cooldown.
   nowSpy.mockReturnValue((start + 3600) * 1000);
@@ -696,7 +727,7 @@ test("/fish heavy_net curse doubles the fresh cooldown while the catch stays ava
   await bot.handleUpdate(commandUpdate({ updateId: 301, text: "/fish", from: PLAYER }));
   expect(sentTexts.at(-1)).toContain("Вы недавно ловили рыбу");
   expect(repo.catches).toHaveLength(1);
-  expect(repo.catchTimes.get("9:-100")).toBe(start + 3600);
+  expect(repo.catchTimes.get("9:-100")).toEqual({ lastCatchTime: start + 3600, delaySeconds: 3600 });
 
   // Two hours later: the doubled cooldown has fully elapsed.
   nowSpy.mockReturnValue((start + 7201) * 1000);
@@ -757,7 +788,7 @@ test("/fish golden_scales curse multiplies only the catcher's chat balance, not 
   expect(repo.fishers.get("9:-100")!.balance).toBeCloseTo(300, 10);
   expect(repo.fishers.get("9:-200")!.balance).toBe(250);
   // The money curse never touches the catch's own cooldown.
-  expect(repo.catchTimes.get("9:-100")).toBe(start);
+  expect(repo.catchTimes.get("9:-100")).toEqual({ lastCatchTime: start, delaySeconds: 0 });
 
   nowSpy.mockRestore();
 });
@@ -766,6 +797,7 @@ test("/fish records the rolled modifier, shows it on the card, and stores its di
   setCatalog(FULL_CATALOG);
   const cfg: Config = { ...CFG, fishModifierDropChance: 100 };
   const { bot, sentTexts, repo } = createTestBot(cfg);
+  spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 9, 30));
   // Catch, rarity point, template, beta size tail, then the modifier drop
   // (always at 100%) and selection (62 lands on the golden band).
   mockRandom([0, 0, 0, ...SIZE_RANDOMS, 0, 0.62]);
@@ -787,6 +819,7 @@ test("/fish records the rolled modifier, shows it on the card, and stores its di
 test("/fish leaves no modifier trace for an unmodified catch", async () => {
   setCatalog(FULL_CATALOG);
   const { bot, sentTexts, repo } = createTestBot();
+  spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 9, 30));
   // The modifier roll is skipped entirely at 0%, so the tail stays unused.
   mockRandom([0, 0, 0, ...SIZE_RANDOMS]);
 
@@ -815,4 +848,235 @@ test("/fakefish shows a modifier by the usual rules without storing anything", a
   expect(sentTexts[0]).toContain("<b>Модификатор:</b> Золотая (Редкий)");
   expect(repo.calls).toEqual([]);
   expect(repo.catches).toHaveLength(0);
+});
+
+/** UTC instant of the given Moscow wall-clock time (MSK is UTC+3 all year). */
+function mskMs(year: number, month: number, day: number, hour: number, minute = 0): number {
+  return Date.UTC(year, month - 1, day, hour - 3, minute);
+}
+
+test("/fish during Рассветный клёв adds +20 percentage points to the success chance", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, catchSuccessChance: 50, catchDelaySeconds: 3600 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  // Wednesday 06:30 MSK, inside the [06:00, 08:00) window.
+  const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 6, 30));
+
+  // 60 < 70 only succeeds with the event bonus; the base chance of 50 would miss.
+  mockRandom([0.6, 0, 0, ...SIZE_RANDOMS]);
+  await bot.handleUpdate(commandUpdate({ updateId: 400, text: "/fish", from: PLAYER }));
+
+  expect(repo.catches).toHaveLength(1);
+  expect(sentTexts[0]).toContain("Событие «Рассветный клёв»");
+
+  nowSpy.mockRestore();
+});
+
+test("/fish outside events keeps the base success chance", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, catchSuccessChance: 50, catchDelaySeconds: 3600 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  // Wednesday 09:30 MSK: no event is active.
+  const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 9, 30));
+
+  mockRandom([0.6]);
+  await bot.handleUpdate(commandUpdate({ updateId: 401, text: "/fish", from: PLAYER }));
+
+  expect(repo.catches).toHaveLength(0);
+  expect(sentTexts).toEqual(["Игрок\n😫Упс похоже ты ничего не поймал😫"]);
+  expect(repo.catchTimes.size).toBe(1); // the attempt still started a cooldown
+
+  nowSpy.mockRestore();
+});
+
+test("/fish during Золотой час rolls rarity with the boosted weights", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, catchDelaySeconds: 3600 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  // Wednesday 12:30 MSK, inside the [12:00, 13:00) window.
+  const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 12, 30));
+
+  // 75.1 falls into golden hour point 3; under normal weights it would be point 2.
+  mockRandom([0, 0.751, 0, ...SIZE_RANDOMS]);
+  await bot.handleUpdate(commandUpdate({ updateId: 410, text: "/fish", from: PLAYER }));
+
+  expect(repo.catches[0]!.point).toBe(3);
+  expect(repo.catches[0]!.fishName).toBe("Карп");
+  expect(sentTexts[0]).toContain("Событие «Золотой час»");
+
+  nowSpy.mockRestore();
+});
+
+test("/fish during Штиль starts a halved cooldown that keeps its duration after the event", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, catchDelaySeconds: 3600 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  // Wednesday 15:30 MSK, inside the [15:00, 16:00) window.
+  const start = mskMs(2026, 9, 9, 15, 30);
+  const nowSpy = spyOn(Date, "now").mockReturnValue(start);
+
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS]);
+  await bot.handleUpdate(commandUpdate({ updateId: 420, text: "/fish", from: PLAYER }));
+  expect(repo.catches).toHaveLength(1);
+  expect(repo.catchTimes.get("9:-100")).toEqual({ lastCatchTime: start / 1000, delaySeconds: 1800 });
+  expect(sentTexts[0]).toContain("Событие «Штиль»");
+
+  // Still inside the event window: the halved cooldown blocks with 800s left.
+  nowSpy.mockReturnValue(start + 1000 * 1000);
+  mockRandom([]);
+  await bot.handleUpdate(commandUpdate({ updateId: 421, text: "/fish", from: PLAYER }));
+  expect(sentTexts.at(-1)).toContain("Вы недавно ловили рыбу");
+  expect(sentTexts.at(-1)).toContain("13минут 20секунд");
+  expect(repo.catchTimes.get("9:-100")).toEqual({ lastCatchTime: start / 1000, delaySeconds: 1800 });
+
+  // The event is over, but the stored 1800s duration still governs expiry.
+  nowSpy.mockReturnValue(start + 1801 * 1000);
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS]);
+  await bot.handleUpdate(commandUpdate({ updateId: 422, text: "/fish", from: PLAYER }));
+  expect(repo.catches).toHaveLength(2);
+  // The fresh cooldown written outside the event uses the full configured delay.
+  expect(repo.catchTimes.get("9:-100")).toEqual({ lastCatchTime: (start + 1801 * 1000) / 1000, delaySeconds: 3600 });
+
+  nowSpy.mockRestore();
+});
+
+test("/fish during Ночной трофей records high-tier prices multiplied by 1.5", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, catchDelaySeconds: 3600 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  // Wednesday 22:30 MSK, inside the [22:00, 23:00) window.
+  const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 22, 30));
+
+  // 99.7 lands on point 5 under normal weights; base price 25414.06 becomes 38121.09.
+  mockRandom([0, 0.997, 0, ...SIZE_RANDOMS]);
+  await bot.handleUpdate(commandUpdate({ updateId: 430, text: "/fish", from: PLAYER }));
+
+  expect(repo.catches[0]!.point).toBe(5);
+  expect(repo.catches[0]!.price).toBe(38121.09);
+  expect(sentTexts[0]).toContain("<b>Цена:</b> 38121.09рублей");
+  expect(sentTexts[0]).toContain("Событие «Ночной трофей»");
+
+  nowSpy.mockRestore();
+});
+
+test("/fish during Лунная заводь guarantees rarity 2-6 and keeps the personal bonus", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, catchDelaySeconds: 3600 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  // Saturday 00:30 MSK, inside the weekend [00:00, 02:00) window.
+  const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 12, 0, 30));
+  repo.chanceUps.add("9:-100");
+
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS]);
+  await bot.handleUpdate(commandUpdate({ updateId: 440, text: "/fish", from: PLAYER }));
+
+  expect(repo.catches[0]!.point).toBe(2);
+  expect(repo.chanceUps.has("9:-100")).toBe(true);
+  expect(repo.calls).not.toContain("consumeChanceUp");
+  expect(sentTexts[0]).toContain("Событие «Лунная заводь»");
+
+  // After the event the stored personal bonus is still pending and gets consumed.
+  nowSpy.mockReturnValue(mskMs(2026, 9, 12, 9, 30));
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS]);
+  await bot.handleUpdate(commandUpdate({ updateId: 441, text: "/fish", from: PLAYER }));
+  expect(repo.calls.filter((call) => call === "consumeChanceUp")).toHaveLength(1);
+  expect(repo.chanceUps.has("9:-100")).toBe(false);
+  expect(repo.catches[1]!.point).toBe(2);
+
+  nowSpy.mockRestore();
+});
+
+test("/event reports the active event, its end time, and the next event", async () => {
+  const { bot, sentTexts } = createTestBot();
+  const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 12, 30));
+
+  await bot.handleUpdate(commandUpdate({ updateId: 450, text: "/event", from: PLAYER }));
+  expect(sentTexts[0]).toBe(
+    "🎣 <b>События</b>\n" +
+      "Сейчас: ✨ <b>Золотой час</b> — до 13:00\n" +
+      "усиленные шансы редкой рыбы\n" +
+      "Следующее: 🌊 <b>Штиль</b> — 15:00",
+  );
+
+  nowSpy.mockReturnValue(mskMs(2026, 9, 9, 10, 0));
+  await bot.handleUpdate(commandUpdate({ updateId: 451, text: "/event", from: PLAYER }));
+  expect(sentTexts[1]).toBe(
+    "🎣 <b>События</b>\n" +
+      "Сейчас активных событий нет.\n" +
+      "Следующее: ✨ <b>Золотой час</b> — 12:00",
+  );
+
+  nowSpy.mockRestore();
+});
+
+test("/event is ignored in private chats", async () => {
+  const { bot, sentTexts } = createTestBot();
+
+  await bot.handleUpdate(commandUpdate({ updateId: 460, text: "/event", chat: PRIVATE_CHAT }));
+
+  expect(sentTexts).toEqual([]);
+});
+
+test("/events lists the full schedule and marks the running event", async () => {
+  const { bot, sentTexts } = createTestBot();
+  // Wednesday 12:30 MSK: golden hour is running.
+  const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 12, 30));
+
+  await bot.handleUpdate(commandUpdate({ updateId: 465, text: "/events", from: PLAYER }));
+
+  expect(sentTexts[0]).toBe(
+    "🎣 <b>Расписание событий</b>\n" +
+      "<i>Время указано для часового пояса Europe/Moscow.</i>\n\n" +
+      "• 🌅 <b>Рассветный клёв</b> — каждый день, 06:00–08:00\n" +
+      "шанс успешной поклёвки +20 п.п.\n" +
+      "• ✨ <b>Золотой час</b> — каждый день, 12:00–13:00 — идёт сейчас\n" +
+      "усиленные шансы редкой рыбы\n" +
+      "• 🌊 <b>Штиль</b> — каждый день, 15:00–16:00\n" +
+      "кулдаун /fish вдвое короче\n" +
+      "• 🌙 <b>Ночной трофей</b> — каждый день, 22:00–23:00\n" +
+      "цена рыб редкости 4–6 ×1.5\n" +
+      "• 🌌 <b>Лунная заводь</b> — сб и вс, 00:00–02:00\n" +
+      "улов гарантированно редкости 2–6, персональный буст не тратится",
+  );
+
+  // With nothing running, no entry carries the marker.
+  nowSpy.mockReturnValue(mskMs(2026, 9, 9, 10, 0));
+  await bot.handleUpdate(commandUpdate({ updateId: 466, text: "/events", from: PLAYER }));
+  expect(sentTexts[1]).not.toContain("идёт сейчас");
+
+  nowSpy.mockRestore();
+});
+
+test("/events is ignored in private chats", async () => {
+  const { bot, sentTexts } = createTestBot();
+
+  await bot.handleUpdate(commandUpdate({ updateId: 467, text: "/events", chat: PRIVATE_CHAT }));
+
+  expect(sentTexts).toEqual([]);
+});
+
+test("/cd counts down by each stored cooldown duration, not the configured one", async () => {
+  const cfg: Config = { ...CFG, catchDelaySeconds: 3600 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  const now = 10_000_000;
+  const nowSpy = spyOn(Date, "now").mockReturnValue(now * 1000);
+  repo.fishers.set("7:-100", { userId: 7, chatId: -100, firstName: "Вега", balance: 0 });
+  repo.fishers.set("8:-100", { userId: 8, chatId: -100, firstName: "Анна<script>", balance: 0 });
+  repo.fishers.set("9:-100", { userId: 9, chatId: -100, firstName: "Боб", balance: 0 });
+  repo.fishers.set("10:-100", { userId: 10, chatId: -100, firstName: "Галя", balance: 0 });
+  repo.catchTimes.set("8:-100", cd(now - 7200, 3600)); // expired long ago
+  repo.catchTimes.set("9:-100", cd(now - 1801, 3600)); // 1799s left
+  repo.catchTimes.set("7:-100", { lastCatchTime: now - 100, delaySeconds: undefined as unknown as number }); // legacy row → CATCH_DELAY
+  repo.catchTimes.set("10:-100", cd(now - 500, 900)); // halved Штиль cooldown, 400s left
+
+  await bot.handleUpdate(commandUpdate({ updateId: 470, text: "/cd", from: ADMIN }));
+
+  nowSpy.mockRestore();
+  expect(sentTexts).toEqual([
+    "🐟 <b>Кулдауны</b>\n" +
+      "• <b>Анна&lt;script&gt;</b> — 0 мин.\n" +
+      "• <b>Боб</b> — 30 мин.\n" +
+      "• <b>Вега</b> — 59 мин.\n" +
+      "• <b>Галя</b> — 7 мин.",
+  ]);
 });

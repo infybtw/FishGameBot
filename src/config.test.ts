@@ -6,6 +6,7 @@ const BASE_ENV: Record<string, string> = {
   ADMIN_USER_ID: "1",
   CATCH_SUCCESS_CHANCE: "50",
   CATCH_DELAY: "0",
+  CURSE_DROP_CHANCE: "0",
   DATABASE_URL: "postgres://localhost:5432/fishbot_test",
 };
 
@@ -48,5 +49,23 @@ describe("FISH_MODIFIER_DROP_CHANCE", () => {
     for (const raw of ["12.5", "-1", "101", "twelve"]) {
       expect(() => loadConfig(envWithModifier(raw))).toThrow(expected);
     }
+  });
+});
+
+describe("EVENT_TIMEZONE", () => {
+  test("falls back to Europe/Moscow when unset or blank", () => {
+    expect(loadConfig({ ...BASE_ENV }).eventTimeZone).toBe("Europe/Moscow");
+    expect(loadConfig({ ...BASE_ENV, EVENT_TIMEZONE: "   " }).eventTimeZone).toBe("Europe/Moscow");
+  });
+
+  test("trims and accepts any valid IANA time zone", () => {
+    expect(loadConfig({ ...BASE_ENV, EVENT_TIMEZONE: "Asia/Yekaterinburg" }).eventTimeZone).toBe("Asia/Yekaterinburg");
+    expect(loadConfig({ ...BASE_ENV, EVENT_TIMEZONE: " UTC " }).eventTimeZone).toBe("UTC");
+  });
+
+  test("rejects an unknown zone", () => {
+    expect(() => loadConfig({ ...BASE_ENV, EVENT_TIMEZONE: "Mars/Olympus" })).toThrow(
+      "EVENT_TIMEZONE must be a valid IANA time zone name",
+    );
   });
 });

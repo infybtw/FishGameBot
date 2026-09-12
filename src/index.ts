@@ -4,6 +4,7 @@ import { log } from "./logger.ts";
 import { createRepo, createSql, migrateSchema } from "./db/index.ts";
 import { seedDefaultFish } from "./db/seed.ts";
 import { loadCatalog, setCatalog } from "./features/fishing/catalog.ts";
+import { startTimeEventNotifier } from "./features/fishing/event-notifier.ts";
 import { startNetNotifier } from "./features/nets/notifier.ts";
 import { createBot, type CatalogAccess } from "./bot.ts";
 import { syncCommandMenu } from "./features/command-menu.ts";
@@ -58,8 +59,10 @@ async function main(): Promise<void> {
   }
 
   const stopNetNotifier = startNetNotifier(repo, bot.api);
+  const stopTimeEventNotifier = startTimeEventNotifier(repo, bot.api, cfg.eventTimeZone);
 
   await bot.start({ onStart: () => log.info("Bot started") });
+  stopTimeEventNotifier();
   stopNetNotifier();
   log.info("Bot stopped");
 

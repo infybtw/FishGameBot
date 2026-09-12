@@ -9,6 +9,8 @@ const CHANGELOG_COMMAND: BotCommand = { command: "changelog", description: "По
 const PUBLIC_GROUP_COMMANDS: BotCommand[] = [
   { command: "fish", description: "Забросить удочку и поймать рыбу" },
   { command: "net", description: "Забросить или собрать сеть" },
+  { command: "event", description: "Текущее и следующее событие" },
+  { command: "events", description: "Расписание всех событий" },
   { command: "profile", description: "Инвентарь, удочки и баланс" },
   { command: "fishes", description: "Каталог рыб чата" },
   { command: "fishtop", description: "Топ рыбаков чата" },

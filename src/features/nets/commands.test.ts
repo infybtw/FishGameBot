@@ -20,6 +20,7 @@ const NET_CFG: Config = {
   catchDelaySeconds: 0,
   curseDropChance: 0,
   fishModifierDropChance: 0,
+  eventTimeZone: "Europe/Moscow",
   databaseUrl: "postgres://localhost/fishbot_test",
 };
 

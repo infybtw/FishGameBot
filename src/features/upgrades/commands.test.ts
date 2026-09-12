@@ -14,6 +14,7 @@ const cfg: Config = {
   catchDelaySeconds: 0,
   curseDropChance: 0,
   fishModifierDropChance: 0,
+  eventTimeZone: "Europe/Moscow",
   databaseUrl: "postgres://example/fishbot_test",
 };
 
