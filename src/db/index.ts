@@ -5,7 +5,11 @@ import { round2 } from "../lib/format.ts";
 export type FishTemplateRow = { id: number; name: string; rarity: string; point: number };
 export type FishTemplateInsert = { name: string; rarity: string; point: number };
 export type FisherRow = { userId: number; chatId: number; firstName: string; balance: number };
-export type CooldownRow = { userId: number; firstName: string; lastCatchTime: number };
+/** A started cooldown: when it began and how long it lasts, in seconds. */
+export type CooldownEntry = { lastCatchTime: number; delaySeconds: number };
+export type CooldownRow = { userId: number; firstName: string; lastCatchTime: number; delaySeconds: number };
+/** The last time event announced to the chats, keyed by event id and start. */
+export type TimeEventAnnouncement = { eventId: string; startedAt: number };
 export type TopFisherRow = { firstName: string; total: number };
 /** Modifier columns stored alongside a catch; null for unmodified fish. */
 export type FishModifierFields = {
@@ -217,6 +221,13 @@ const SCHEMA_STATEMENTS = [
   `INSERT INTO chat_messages (chat_id, message_id, is_bot, is_command, sent_at, deleted_at)
     SELECT chat_id, message_id, TRUE, FALSE, sent_at, deleted_at FROM bot_messages
     ON CONFLICT (chat_id, message_id) DO NOTHING`,
+  // Cooldowns started before delay tracking get CATCH_DELAY substituted on read.
+  `ALTER TABLE catch_time ADD COLUMN IF NOT EXISTS delay_seconds INTEGER`,
+  `CREATE TABLE IF NOT EXISTS time_event_announcements (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    event_id TEXT NOT NULL,
+    started_at DOUBLE PRECISION NOT NULL
+  )`,
 ];
 
 export function createSql(databaseUrl: string): SQL {
@@ -309,12 +320,14 @@ export type Repo = {
   ensureFisher(userId: number, chatId: number, firstName: string): Promise<void>;
   recordCatch(catch_: CatchInsert): Promise<void>;
   deleteLastCatch(userId: number, chatId: number): Promise<DeletedCatch | null>;
-  getCatchTime(userId: number, chatId: number): Promise<number | null>;
-  upsertCatchTime(userId: number, chatId: number, unixSeconds: number): Promise<void>;
+  getCatchTime(userId: number, chatId: number, defaultDelaySeconds: number): Promise<CooldownEntry | null>;
+  upsertCatchTime(userId: number, chatId: number, unixSeconds: number, delaySeconds: number): Promise<void>;
   deleteCatchTime(userId: number, chatId: number): Promise<void>;
   deleteCatchTimes(chatId: number): Promise<number>;
   listChatIds(): Promise<number[]>;
-  listCatchTimes(chatId: number): Promise<CooldownRow[]>;
+  listCatchTimes(chatId: number, defaultDelaySeconds: number): Promise<CooldownRow[]>;
+  getTimeEventAnnouncement(): Promise<TimeEventAnnouncement | null>;
+  setTimeEventAnnouncement(eventId: string, startedAt: number): Promise<void>;
   grantChanceUp(userId: number, chatId: number): Promise<void>;
   hasChanceUp(userId: number, chatId: number): Promise<boolean>;
   consumeChanceUp(userId: number, chatId: number): Promise<boolean>;
@@ -397,16 +410,19 @@ export function createRepo(sql: SQL): Repo {
         };
       });
     },
-    async getCatchTime(userId, chatId): Promise<number | null> {
-      const rows = (await sql`SELECT last_catch_time FROM catch_time
-        WHERE user_id = ${userId} AND chat_id = ${chatId}`) as Array<{ last_catch_time: unknown }>;
+    async getCatchTime(userId, chatId, defaultDelaySeconds): Promise<CooldownEntry | null> {
+      const rows = (await sql`SELECT last_catch_time, COALESCE(delay_seconds, ${defaultDelaySeconds}) AS delay_seconds
+        FROM catch_time
+        WHERE user_id = ${userId} AND chat_id = ${chatId}`) as Array<Record<string, unknown>>;
       const row = rows[0];
-      return row === undefined ? null : asNumber(row.last_catch_time);
+      return row === undefined ? null : { lastCatchTime: asNumber(row.last_catch_time), delaySeconds: asNumber(row.delay_seconds) };
     },
-    async upsertCatchTime(userId, chatId, unixSeconds): Promise<void> {
-      await sql`INSERT INTO catch_time (user_id, chat_id, last_catch_time)
-        VALUES (${userId}, ${chatId}, ${unixSeconds})
-        ON CONFLICT (user_id, chat_id) DO UPDATE SET last_catch_time = EXCLUDED.last_catch_time`;
+    async upsertCatchTime(userId, chatId, unixSeconds, delaySeconds): Promise<void> {
+      await sql`INSERT INTO catch_time (user_id, chat_id, last_catch_time, delay_seconds)
+        VALUES (${userId}, ${chatId}, ${unixSeconds}, ${delaySeconds})
+        ON CONFLICT (user_id, chat_id) DO UPDATE SET
+          last_catch_time = EXCLUDED.last_catch_time,
+          delay_seconds = EXCLUDED.delay_seconds`;
     },
     async deleteCatchTime(userId: number, chatId: number): Promise<void> {
       await sql`DELETE FROM catch_time WHERE user_id = ${userId} AND chat_id = ${chatId}`;
@@ -425,8 +441,9 @@ export function createRepo(sql: SQL): Repo {
       const rows = (await sql`SELECT DISTINCT chat_id FROM fishers`) as Array<Record<string, unknown>>;
       return rows.map((row) => asNumber(row.chat_id));
     },
-    async listCatchTimes(chatId: number): Promise<CooldownRow[]> {
-      const rows = (await sql`SELECT c.user_id, c.last_catch_time, f.user_first_name
+    async listCatchTimes(chatId: number, defaultDelaySeconds: number): Promise<CooldownRow[]> {
+      const rows = (await sql`SELECT c.user_id, c.last_catch_time,
+          COALESCE(c.delay_seconds, ${defaultDelaySeconds}) AS delay_seconds, f.user_first_name
         FROM catch_time c
         JOIN fishers f ON f.user_id = c.user_id AND f.chat_id = c.chat_id
         WHERE c.chat_id = ${chatId}
@@ -435,7 +452,22 @@ export function createRepo(sql: SQL): Repo {
         userId: asNumber(row.user_id),
         firstName: String(row.user_first_name),
         lastCatchTime: asNumber(row.last_catch_time),
+        delaySeconds: asNumber(row.delay_seconds),
       }));
+    },
+    async getTimeEventAnnouncement(): Promise<TimeEventAnnouncement | null> {
+      const rows = (await sql`SELECT event_id, started_at FROM time_event_announcements WHERE id = 1`) as Array<
+        Record<string, unknown>
+      >;
+      const row = rows[0];
+      return row === undefined ? null : { eventId: String(row.event_id), startedAt: asNumber(row.started_at) };
+    },
+    async setTimeEventAnnouncement(eventId: string, startedAt: number): Promise<void> {
+      await sql`INSERT INTO time_event_announcements (id, event_id, started_at)
+        VALUES (1, ${eventId}, ${startedAt})
+        ON CONFLICT (id) DO UPDATE SET
+          event_id = EXCLUDED.event_id,
+          started_at = EXCLUDED.started_at`;
     },
     async grantChanceUp(userId: number, chatId: number): Promise<void> {
       await sql`INSERT INTO chance_up (user_id, chat_id)

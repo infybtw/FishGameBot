@@ -5,10 +5,13 @@ import { CURSES } from "./curses.ts";
 import type { CaughtFish } from "./generator.ts";
 import { RARITY_WEIGHTS, type Catalog } from "./catalog.ts";
 import { FISH_MODIFIERS } from "./modifiers.ts";
+import { formatEventDays, formatEventTime, formatEventWindow, TIME_EVENTS, type ActiveTimeEvent, type TimeEvent } from "./time-events.ts";
 
-export function catchCard(fish: CaughtFish): string {
+export function catchCard(fish: CaughtFish, activeEvent: TimeEvent | null = null): string {
   const modifierLine =
     fish.modifier === null ? "" : `<b>Модификатор:</b> ${escapeHtml(fish.modifier.name)} (${escapeHtml(fish.modifier.rarity)})\n`;
+  const eventLine =
+    activeEvent === null ? "" : `\n\n${activeEvent.emoji} <b>Событие «${escapeHtml(activeEvent.name)}»</b>: ${escapeHtml(activeEvent.effect)}`;
   return (
     `${escapeHtml(fish.catcherFirstName)}\n` +
     `🌟 Удача! Вы смогли вытянуть Рыбу🌟\n` +
@@ -19,7 +22,8 @@ export function catchCard(fish: CaughtFish): string {
     `<b>Размер:</b> ${fish.sizeCm}см\n` +
     `\n` +
     `<b>Цена:</b> ${round2(fish.price)}рублей\n` +
-    `Рыба добавлена в инвентарь. Продайте её через /profile.`
+    `Рыба добавлена в инвентарь. Продайте её через /profile.` +
+    eventLine
   );
 }
 
@@ -150,4 +154,46 @@ export function statsMsg(
 
 export function statsEmpty(firstName: string): string {
   return `${escapeHtml(firstName)}\nВаша статистика пока пуста`;
+}
+
+/** Public /event reply: the active event with its end time, plus the next one. */
+export function eventStatusMessage(active: ActiveTimeEvent | null, next: ActiveTimeEvent, timeZone: string): string {
+  const nextLine =
+    `Следующее: ${next.event.emoji} <b>${escapeHtml(next.event.name)}</b> — ` +
+    `${formatEventTime(next.startsAt, timeZone)}`;
+  if (active === null) {
+    return `🎣 <b>События</b>\nСейчас активных событий нет.\n${nextLine}`;
+  }
+  return (
+    `🎣 <b>События</b>\n` +
+    `Сейчас: ${active.event.emoji} <b>${escapeHtml(active.event.name)}</b> — до ${formatEventTime(active.endsAt, timeZone)}\n` +
+    `${escapeHtml(active.event.effect)}\n` +
+    `${nextLine}`
+  );
+}
+
+/** Group announcement posted once when an event begins. */
+export function eventStartMessage(active: ActiveTimeEvent, timeZone: string): string {
+  return (
+    `${active.event.emoji} <b>Началось событие «${escapeHtml(active.event.name)}»</b> — ` +
+    `до ${formatEventTime(active.endsAt, timeZone)}.\n` +
+    `${escapeHtml(active.event.effect)}`
+  );
+}
+
+/** Public /events reply: the full recurring schedule with the running event marked. */
+export function eventScheduleMessage(timeZone: string, activeEventId: string | null = null): string {
+  const rows = TIME_EVENTS.map((event) => {
+    const marker = event.id === activeEventId ? " — идёт сейчас" : "";
+    return (
+      `• ${event.emoji} <b>${escapeHtml(event.name)}</b> — ` +
+      `${formatEventDays(event.days)}, ${formatEventWindow(event)}${marker}\n` +
+      `${escapeHtml(event.effect)}`
+    );
+  });
+  return (
+    `🎣 <b>Расписание событий</b>\n` +
+    `<i>Время указано для часового пояса ${escapeHtml(timeZone)}.</i>\n\n` +
+    rows.join("\n")
+  );
 }

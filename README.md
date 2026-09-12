@@ -7,6 +7,7 @@ The bot creates its PostgreSQL schema on startup and seeds a default fish catalo
 ## Features
 
 - Group fishing with a configurable success chance and per-user, per-chat cooldown
+- Scheduled global events (dawn bite, golden hour, calm, night trophy, weekend moon pool) that tweak `/fish` odds, cooldowns, and prices in one configured time zone
 - Per-chat balances, catch history, player statistics, and leaderboard
 - Default catalog with multiple rarity tiers
 - Optional fish modifiers that boost a caught fish's size, weight, and price and stay with it through storage, selling, and trading
@@ -136,6 +137,7 @@ bun run start
 | `CATCH_DELAY` | Yes for host runs | `3600` in Compose | Non-negative cooldown in seconds, scoped to each user and chat. |
 | `CURSE_DROP_CHANCE` | Yes for host runs | `20` in Compose | Integer from 0 to 100. Chance to apply one curse after a successful catch. |
 | `FISH_MODIFIER_DROP_CHANCE` | No | `12` | Integer from 0 to 100. Chance that a successful catch (including net fish) carries a modifier. |
+| `EVENT_TIMEZONE` | No | `Europe/Moscow` | IANA time zone used by scheduled global events (`/event`) and their announcements. |
 | `DATABASE_URL` | No | `postgres://localhost:5432/fishbot` | PostgreSQL connection string. The provided host-development value includes the Compose credentials. |
 | `LOG_LEVEL` | No | `info` | One of `debug`, `info`, `warn`, or `error`. |
 | `POSTGRES_PASSWORD` | Docker Compose only | `testpass` | Password shared by the Compose PostgreSQL and bot services. Use a strong value outside local development. |
@@ -154,6 +156,8 @@ These commands are available in groups and supergroups:
 | --- | --- |
 | `/fish` | Attempt to catch a fish. |
 | `/net` | Open your fishing net menu. Every player has one implicit basic net per group: cast it, watch the 12-hour countdown, and collect 1–6 fish. Nets are independent in each group. |
+| `/event` | Show the active global event with its end time and the next scheduled event. Events follow `EVENT_TIMEZONE` and can boost the success chance, change rarity odds, halve the cooldown, raise high-tier prices, or guarantee rarity 2–6 on weekends. |
+| `/events` | Show the full recurring event schedule with the currently running event marked. |
 | `/fishtop` | Show the current chat's fishing leaderboard. |
 | `/stats` | Show your statistics for the current chat. |
 | `/trade` | Offer a player trade: reply to the other player's message with `/trade`, then offer one of your fish (or money) for one of theirs. Only the replied-to player can accept or decline the published offer. |

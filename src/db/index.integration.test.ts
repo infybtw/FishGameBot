@@ -310,6 +310,51 @@ describe.skipIf(databaseUrl === undefined)("Repo inventory economy integration",
   });
 });
 
+describe.skipIf(databaseUrl === undefined)("Repo cooldowns and time event announcements integration", () => {
+  beforeEach(async () => {
+    await resetSchema();
+  });
+
+  test("cooldown pairs roundtrip and legacy rows fall back to the configured delay", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(9, -100, "Игрок");
+
+    expect(await repo.getCatchTime(9, -100, 3600)).toBeNull();
+
+    await repo.upsertCatchTime(9, -100, 5_000, 1_800);
+    expect(await repo.getCatchTime(9, -100, 3600)).toEqual({ lastCatchTime: 5_000, delaySeconds: 1_800 });
+
+    // Rows written before delay tracking (delay_seconds NULL) read as CATCH_DELAY.
+    await sql!`INSERT INTO catch_time (user_id, chat_id, last_catch_time) VALUES (8, -100, 6_000)
+      ON CONFLICT (user_id, chat_id) DO UPDATE SET last_catch_time = EXCLUDED.last_catch_time`;
+    await sql!`UPDATE catch_time SET delay_seconds = NULL WHERE user_id = 8 AND chat_id = -100`;
+    expect(await repo.getCatchTime(8, -100, 3600)).toEqual({ lastCatchTime: 6_000, delaySeconds: 3_600 });
+
+    await repo.upsertCatchTime(9, -100, 7_000, 3_600);
+    const rows = await repo.listCatchTimes(-100, 3600);
+    expect(rows).toEqual([
+      { userId: 8, firstName: "Игрок", lastCatchTime: 6_000, delaySeconds: 3_600 },
+      { userId: 9, firstName: "Игрок", lastCatchTime: 7_000, delaySeconds: 3_600 },
+    ]);
+  });
+
+  test("the announcement pair upserts a single row keyed by event id and start", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+
+    expect(await repo.getTimeEventAnnouncement()).toBeNull();
+
+    await repo.setTimeEventAnnouncement("calm", 1_000);
+    expect(await repo.getTimeEventAnnouncement()).toEqual({ eventId: "calm", startedAt: 1_000 });
+
+    await repo.setTimeEventAnnouncement("night_trophy", 2_000);
+    expect(await repo.getTimeEventAnnouncement()).toEqual({ eventId: "night_trophy", startedAt: 2_000 });
+    const rows = (await sql!`SELECT event_id FROM time_event_announcements`) as unknown[];
+    expect(rows).toHaveLength(1);
+  });
+});
+
 describe.skipIf(databaseUrl === undefined)("Repo fishing nets integration", () => {
   beforeEach(async () => {
     await resetSchema();

@@ -14,6 +14,9 @@ export type CaughtFish = {
   catcherFirstName: string;
 };
 
+/** Event price adjustment: multiplies the price of fish in the point range. */
+export type PriceModifier = { multiplier: number; minPoint: number; maxPoint: number };
+
 export function didCatch(successChance: number, random: () => number = Math.random): boolean {
   return random() * 100 < successChance;
 }
@@ -94,13 +97,17 @@ export function generateCatch(
   point: number,
   catcherFirstName: string,
   modifierDropChance = 0,
+  priceModifier?: PriceModifier,
 ): CaughtFish {
   const template = pickTemplate(catalog, point);
   const baseSizeCm = generateSize(point);
   const modifier = rollModifier(modifierDropChance);
   const sizeCm = round2(baseSizeCm * (modifier?.sizeMultiplier ?? 1));
   const weightG = generateWeight(sizeCm);
-  const price = round2(generatePrice(point, weightG) * (modifier?.priceMultiplier ?? 1));
+  let price = round2(generatePrice(point, weightG) * (modifier?.priceMultiplier ?? 1));
+  if (priceModifier !== undefined && point >= priceModifier.minPoint && point <= priceModifier.maxPoint) {
+    price = round2(price * priceModifier.multiplier);
+  }
   return {
     name: template.name,
     rarity: template.rarity,
@@ -117,11 +124,13 @@ export function tryCatch(
   catalog: Catalog,
   catcherFirstName: string,
   successChance: number,
-  rarityStepBonus: number,
+  rarityStepBonus = 0,
   modifierDropChance = 0,
+  rarityWeights: Readonly<Record<number, number>> = RARITY_WEIGHTS,
+  priceModifier?: PriceModifier,
 ): CaughtFish | null {
   if (!didCatch(successChance)) return null;
-  return generateCatch(catalog, rollPoint(catalog, rarityStepBonus), catcherFirstName, modifierDropChance);
+  return generateCatch(catalog, rollPoint(catalog, rarityStepBonus, Math.random, rarityWeights), catcherFirstName, modifierDropChance, priceModifier);
 }
 
 /**
@@ -133,12 +142,14 @@ export function boostedCatch(
   catcherFirstName: string,
   rarityStepBonus = 0,
   modifierDropChance = 0,
+  priceModifier?: PriceModifier,
 ): CaughtFish {
   return generateCatch(
     catalog,
     rollPoint(catalog, rarityStepBonus, Math.random, CHANCE_UP_RARITY_WEIGHTS),
     catcherFirstName,
     modifierDropChance,
+    priceModifier,
   );
 }
 

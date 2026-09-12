@@ -5,8 +5,12 @@ export type Config = {
   catchDelaySeconds: number;
   curseDropChance: number;
   fishModifierDropChance: number;
+  eventTimeZone: string;
   databaseUrl: string;
 };
+
+/** Fallback IANA zone for scheduled events when EVENT_TIMEZONE is unset. */
+export const DEFAULT_EVENT_TIME_ZONE = "Europe/Moscow";
 
 function readInt(raw: string | undefined): number | null {
   if (raw === undefined || raw.trim() === "") return null;
@@ -16,6 +20,14 @@ function readInt(raw: string | undefined): number | null {
 
 /** Chance in percent that a successful catch carries a fish modifier. */
 export const FISH_MODIFIER_DROP_CHANCE_DEFAULT = 12;
+function isValidTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const problems: string[] = [];
@@ -60,6 +72,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     problems.push("DATABASE_URL must be a postgres:// or postgresql:// connection string");
   }
 
+  const rawEventTimeZone = env.EVENT_TIMEZONE?.trim();
+  const eventTimeZone = rawEventTimeZone === undefined || rawEventTimeZone === "" ? DEFAULT_EVENT_TIME_ZONE : rawEventTimeZone;
+  if (!isValidTimeZone(eventTimeZone)) {
+    problems.push("EVENT_TIMEZONE must be a valid IANA time zone name");
+  }
+
   if (problems.length > 0) {
     throw new Error(`Invalid environment configuration:\n- ${problems.join("\n- ")}`);
   }
@@ -71,6 +89,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     catchDelaySeconds: catchDelaySeconds!,
     curseDropChance: curseDropChance!,
     fishModifierDropChance,
+    eventTimeZone,
     databaseUrl: databaseUrl || "postgres://localhost:5432/fishbot",
   };
 }

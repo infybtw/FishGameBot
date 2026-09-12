@@ -15,6 +15,7 @@ import {
 import { formatRemaining } from "./cooldown.ts";
 import { CHANCE_UP_RARITY_WEIGHTS, RARITY_WEIGHTS, type Catalog } from "./catalog.ts";
 import { FISH_MODIFIERS } from "./modifiers.ts";
+import { GOLDEN_HOUR_RARITY_WEIGHTS } from "./time-events.ts";
 import { NET_RARITY_WEIGHTS } from "../nets/net.ts";
 
 function mockRandom(values: readonly number[]): void {
@@ -282,6 +283,38 @@ describe("fakeFishCatch", () => {
   test("throws when neither point 5 nor point 6 has templates", () => {
     const catalog: Catalog = [[{ name: "Окунь", rarity: "Обычный", point: 1 }]];
     expect(() => fakeFishCatch(catalog, "Ира")).toThrow("No fish templates for rarity point 5 or 6");
+  });
+});
+
+describe("tryCatch with event modifiers", () => {
+  test("golden hour weights replace the ordinary distribution", () => {
+    // Cumulative golden hour bands: 45, 75, 90, 97, 99.5, 100.
+    mockRandom([0, 0.4499, 0, ...SIZE_RANDOMS]);
+    expect(tryCatch(BOOST_CATALOG, "Ира", 100, 0, 0, GOLDEN_HOUR_RARITY_WEIGHTS)?.point).toBe(1);
+    mockRandom([0, 0.4501, 0, ...SIZE_RANDOMS]);
+    expect(tryCatch(BOOST_CATALOG, "Ира", 100, 0, 0, GOLDEN_HOUR_RARITY_WEIGHTS)?.point).toBe(2);
+    mockRandom([0, 0.975, 0, ...SIZE_RANDOMS]);
+    expect(tryCatch(BOOST_CATALOG, "Ира", 100, 0, 0, GOLDEN_HOUR_RARITY_WEIGHTS)?.point).toBe(5);
+    // The same roll under normal weights lands elsewhere, proving the swap.
+    mockRandom([0, 0.4501, 0, ...SIZE_RANDOMS]);
+    expect(tryCatch(BOOST_CATALOG, "Ира", 100, 0)?.point).toBe(1);
+  });
+
+  test("moon pool weights guarantee rarity 2-6 and never roll point 1", () => {
+    mockRandom([0, 0.9999999999999999, 0, ...SIZE_RANDOMS]);
+    const fish = tryCatch(BOOST_CATALOG, "Ира", 100, 0, 0, CHANCE_UP_RARITY_WEIGHTS)!;
+    expect(fish.point).toBe(6);
+    expect(fish.name).toBe("Кит");
+  });
+
+  test("night trophy multiplier raises only rarity 4-6 prices", () => {
+    const modifier = { multiplier: 1.5, minPoint: 4, maxPoint: 6 };
+    mockRandom([0, ...SIZE_RANDOMS]);
+    expect(generateCatch(BOOST_CATALOG, 5, "Ира", 0, modifier)).toMatchObject({ point: 5, price: 38121.09 });
+    mockRandom([0, ...SIZE_RANDOMS]);
+    expect(generateCatch(BOOST_CATALOG, 2, "Ира", 0, modifier).price).toBe(719.85);
+    mockRandom([0, ...SIZE_RANDOMS]);
+    expect(generateCatch(BOOST_CATALOG, 5, "Ира").price).toBe(25414.06);
   });
 });
 
