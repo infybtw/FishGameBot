@@ -238,7 +238,7 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     const delaySeconds = hours * 3600;
     await repo.upsertCatchTime(target.id, ctx.chat.id, Date.now() / 1000, delaySeconds);
     log.info({ targetUserId: target.id, chatId: ctx.chat.id, hours }, "Kamaz cooldown applied");
-    await ctx.reply(kamazCooldown(hours));
+    await ctx.reply(kamazCooldown(target.firstName, hours));
   });
 
   bot.command("cdr_all", async (ctx) => {

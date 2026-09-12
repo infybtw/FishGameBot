@@ -76,11 +76,11 @@ export function cooldownList(rows: Array<{ firstName: string; minutesLeft: numbe
   );
 }
 
-export function kamazCooldown(hours: number): string {
+export function kamazCooldown(firstName: string, hours: number): string {
   const remainder = hours % 100;
   const lastDigit = hours % 10;
   const unit = remainder >= 11 && remainder <= 14 ? "часов" : lastDigit === 1 ? "час" : lastDigit >= 2 && lastDigit <= 4 ? "часа" : "часов";
-  return `Вас сбил камаз, для востановления потребуется ${hours} ${unit}`;
+  return `${escapeHtml(firstName)}\nВас сбил камаз, для востановления потребуется ${hours} ${unit}`;
 }
 
 export function chanceUpGranted(firstName: string): string {

@@ -450,7 +450,7 @@ test("/cda applies the default 12-hour cooldown to the replied player", async ()
 
   await bot.handleUpdate(commandUpdate({ updateId: 209, text: "/cda", from: ADMIN, replyTo: PLAYER }));
 
-  expect(sentTexts).toEqual(["Вас сбил камаз, для востановления потребуется 12 часов"]);
+  expect(sentTexts).toEqual(["Игрок\nВас сбил камаз, для востановления потребуется 12 часов"]);
   expect(repo.calls).toEqual(["upsertCatchTime"]);
   expect(repo.catchTimes.get("9:-100")).toEqual({ lastCatchTime: 10_000, delaySeconds: 43_200 });
   nowSpy.mockRestore();
@@ -466,7 +466,7 @@ test("/cda applies the supplied number of hours and rejects invalid usage", asyn
   await bot.handleUpdate(commandUpdate({ updateId: 213, text: "/cda 3", from: ADMIN }));
 
   expect(sentTexts).toEqual([
-    "Вас сбил камаз, для востановления потребуется 3 часа",
+    "Игрок\nВас сбил камаз, для востановления потребуется 3 часа",
     "Укажите положительное целое количество часов.",
     "Укажите положительное целое количество часов.",
     "Ответьте на сообщение пользователя командой /cda [часов]",
