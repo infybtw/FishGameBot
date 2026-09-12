@@ -61,6 +61,8 @@ export function goldenScalesCurse(multiplier: number): string {
 }
 
 export const CDR_USAGE = "Ответьте на сообщение пользователя командой /cdr";
+export const CDA_USAGE = "Ответьте на сообщение пользователя командой /cda [часов]";
+export const CDA_INVALID_DURATION = "Укажите положительное целое количество часов.";
 export const CHANCE_UP_USAGE = "Ответьте на сообщение пользователя командой /chanceup";
 export const FAKE_FISH_CATALOG_EMPTY = "В списке нет рыб редкости 5 или 6";
 export const CHANCE_UP_CATALOG_EMPTY = "В списке нет рыб редкости 2–6";
@@ -72,6 +74,13 @@ export function cooldownList(rows: Array<{ firstName: string; minutesLeft: numbe
     `🐟 <b>Кулдауны</b>\n` +
     rows.map((row) => `• <b>${escapeHtml(row.firstName)}</b> — ${row.minutesLeft} мин.`).join("\n")
   );
+}
+
+export function kamazCooldown(hours: number): string {
+  const remainder = hours % 100;
+  const lastDigit = hours % 10;
+  const unit = remainder >= 11 && remainder <= 14 ? "часов" : lastDigit === 1 ? "час" : lastDigit >= 2 && lastDigit <= 4 ? "часа" : "часов";
+  return `Вас сбил камаз, для востановления потребуется ${hours} ${unit}`;
 }
 
 export function chanceUpGranted(firstName: string): string {

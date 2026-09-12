@@ -12,6 +12,8 @@ import { rollBalanceMultiplier, rollCurse, type Curse } from "./curses.ts";
 import { boostedCatch, fakeFishCatch, tryCatch, type CaughtFish, type PriceModifier } from "./generator.ts";
 import {
   CDR_USAGE,
+  CDA_INVALID_DURATION,
+  CDA_USAGE,
   CHANCE_UP_CATALOG_EMPTY,
   CHANCE_UP_USAGE,
   COOLDOWNS_EMPTY,
@@ -30,6 +32,7 @@ import {
   heavyNetCurse,
   lastCatchMissing,
   lastCatchRemoved,
+  kamazCooldown,
   nothingCaught,
   secondCastCurse,
   statsEmpty,
@@ -45,6 +48,15 @@ import {
 } from "./time-events.ts";
 
 const FAKE_FISH_POINTS = [5, 6] as const;
+const DEFAULT_CDA_HOURS = 12;
+
+function parseCooldownHours(raw: string): number | null {
+  const value = raw.trim();
+  if (value === "") return DEFAULT_CDA_HOURS;
+  if (!/^\d+$/.test(value)) return null;
+  const hours = Number(value);
+  return Number.isSafeInteger(hours) && hours > 0 && hours <= Math.floor(Number.MAX_SAFE_INTEGER / 3600) ? hours : null;
+}
 
 function logIgnored(ctx: Context, reason: string): void {
   log.debug(
@@ -206,6 +218,27 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     await repo.deleteCatchTime(target.id, ctx.chat.id);
     log.info({ targetUserId: target.id, chatId: ctx.chat.id }, "Cooldown reset");
     await ctx.reply(cooldownReset(target.firstName));
+  });
+
+  bot.command("cda", async (ctx) => {
+    if (!isAdminInGroup(ctx, cfg)) {
+      logIgnored(ctx, "not a group chat or sender is not the admin");
+      return;
+    }
+    const target = replyTarget(ctx);
+    if (target === null) {
+      await ctx.reply(CDA_USAGE);
+      return;
+    }
+    const hours = parseCooldownHours(ctx.match);
+    if (hours === null) {
+      await ctx.reply(CDA_INVALID_DURATION);
+      return;
+    }
+    const delaySeconds = hours * 3600;
+    await repo.upsertCatchTime(target.id, ctx.chat.id, Date.now() / 1000, delaySeconds);
+    log.info({ targetUserId: target.id, chatId: ctx.chat.id, hours }, "Kamaz cooldown applied");
+    await ctx.reply(kamazCooldown(hours));
   });
 
   bot.command("cdr_all", async (ctx) => {

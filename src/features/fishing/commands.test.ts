@@ -444,15 +444,49 @@ test("/cdr without an eligible replied user explains the required usage", async 
   expect(repo.calls).toEqual([]);
 });
 
+test("/cda applies the default 12-hour cooldown to the replied player", async () => {
+  const { bot, sentTexts, repo } = createTestBot();
+  const nowSpy = spyOn(Date, "now").mockReturnValue(10_000_000);
+
+  await bot.handleUpdate(commandUpdate({ updateId: 209, text: "/cda", from: ADMIN, replyTo: PLAYER }));
+
+  expect(sentTexts).toEqual(["Вас сбил камаз, для востановления потребуется 12 часов"]);
+  expect(repo.calls).toEqual(["upsertCatchTime"]);
+  expect(repo.catchTimes.get("9:-100")).toEqual({ lastCatchTime: 10_000, delaySeconds: 43_200 });
+  nowSpy.mockRestore();
+});
+
+test("/cda applies the supplied number of hours and rejects invalid usage", async () => {
+  const { bot, sentTexts, repo } = createTestBot();
+  const nowSpy = spyOn(Date, "now").mockReturnValue(10_000_000);
+
+  await bot.handleUpdate(commandUpdate({ updateId: 210, text: "/cda 3", from: ADMIN, replyTo: PLAYER }));
+  await bot.handleUpdate(commandUpdate({ updateId: 211, text: "/cda 0", from: ADMIN, replyTo: PLAYER }));
+  await bot.handleUpdate(commandUpdate({ updateId: 212, text: "/cda 2.5", from: ADMIN, replyTo: PLAYER }));
+  await bot.handleUpdate(commandUpdate({ updateId: 213, text: "/cda 3", from: ADMIN }));
+
+  expect(sentTexts).toEqual([
+    "Вас сбил камаз, для востановления потребуется 3 часа",
+    "Укажите положительное целое количество часов.",
+    "Укажите положительное целое количество часов.",
+    "Ответьте на сообщение пользователя командой /cda [часов]",
+  ]);
+  expect(repo.calls).toEqual(["upsertCatchTime"]);
+  expect(repo.catchTimes.get("9:-100")).toEqual({ lastCatchTime: 10_000, delaySeconds: 10_800 });
+  nowSpy.mockRestore();
+});
+
 test("admin commands from non-owners or in private chats are silently ignored", async () => {
   setCatalog(FULL_CATALOG);
   const { bot, sentTexts, repo } = createTestBot();
 
   await bot.handleUpdate(commandUpdate({ updateId: 6, text: "/cdr", from: PLAYER, replyTo: PLAYER }));
+  await bot.handleUpdate(commandUpdate({ updateId: 214, text: "/cda", from: PLAYER, replyTo: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 7, text: "/cd", from: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 8, text: "/fakefish", from: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 9, text: "/chanceup", from: PLAYER, replyTo: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 10, text: "/cdr", from: ADMIN, chat: PRIVATE_CHAT, replyTo: PLAYER }));
+  await bot.handleUpdate(commandUpdate({ updateId: 215, text: "/cda", from: ADMIN, chat: PRIVATE_CHAT, replyTo: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 11, text: "/cd", from: ADMIN, chat: PRIVATE_CHAT }));
   await bot.handleUpdate(commandUpdate({ updateId: 200, text: "/cdr_all", from: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 201, text: "/cdr_all", from: ADMIN, chat: PRIVATE_CHAT }));
