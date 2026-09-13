@@ -104,6 +104,16 @@ test("rollPoint respects rarity-weight boundaries", () => {
   expect(rollPoint(catalog)).toBe(3);
 });
 
+test("rollPoint gives a case rod's target rarity its explicit post-success chance", () => {
+  const catalog: Catalog = [
+    [{ name: "Окунь", rarity: "Обычный", point: 1 }],
+    [{ name: "Лещ", rarity: "Необычный", point: 2 }],
+  ];
+  expect(rollPoint(catalog, 0, () => 0.079, RARITY_WEIGHTS, { point: 2, chance: 8 })).toBe(2);
+  expect(rollPoint(catalog, 0, () => 0.08, RARITY_WEIGHTS, { point: 2, chance: 8 })).toBe(1);
+  expect(rollPoint(catalog, 0, () => 0, RARITY_WEIGHTS, { point: 3, chance: 100 })).toBe(1);
+});
+
 test("rollPoint rejects an empty catalog", () => {
   expect(() => rollPoint([])).toThrow("Cannot roll a rarity point: fish catalog is empty");
 });

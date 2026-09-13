@@ -140,6 +140,8 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     const rod = getRod((await repo.getEquippedRodId(userId, chatId)) ?? "basic") ?? getRod("basic")!;
     const rodCatchBonus = modifiers.rodBuffsEnabled ? rod.catchBonusPoints : 0;
     const rodRarityBonus = modifiers.rodBuffsEnabled ? rod.rarityStepBonus : 0;
+    const rodModifierBonus = modifiers.rodBuffsEnabled && rod.acquisition === "case" && rod.specialEffect.kind === "modifier_chance" ? rod.specialEffect.bonusPoints : 0;
+    const rodRarityTarget = modifiers.rodBuffsEnabled && rod.acquisition === "case" && rod.specialEffect.kind === "rarity_chance" ? rod.specialEffect : undefined;
     const successChance = Math.min(100, cfg.catchSuccessChance + rodCatchBonus + modifiers.successChanceBonusPoints);
     let fish: CaughtFish | null;
     let boosted = false;
@@ -154,9 +156,9 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
           };
     if (chanceUp && modifiers.guaranteedRarityWeights === null && (await repo.consumeChanceUp(userId, chatId))) {
       boosted = true;
-      fish = boostedCatch(catalog, firstName, rodRarityBonus, cfg.fishModifierDropChance, priceModifier);
+      fish = boostedCatch(catalog, firstName, rodRarityBonus, Math.min(100, cfg.fishModifierDropChance + rodModifierBonus), priceModifier, rodRarityTarget);
     } else {
-      fish = tryCatch(catalog, firstName, successChance, rodRarityBonus, cfg.fishModifierDropChance, rarityWeights, priceModifier);
+      fish = tryCatch(catalog, firstName, successChance, rodRarityBonus, Math.min(100, cfg.fishModifierDropChance + rodModifierBonus), rarityWeights, priceModifier, rodRarityTarget);
     }
     if (fish === null) {
       log.info(

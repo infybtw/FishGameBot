@@ -8,7 +8,7 @@ import { isAdmin, isGroup } from "../../guards.ts";
 import { escapeHtml } from "../../lib/format.ts";
 import { log } from "../../logger.ts";
 import { inventoryCard, inventoryFishCard, profileCard } from "../upgrades/messages.ts";
-import { getRod, RODS } from "../upgrades/rods.ts";
+import { getRod, rodSpecialEffectLabel, RODS } from "../upgrades/rods.ts";
 import { getRodCase } from "../rod-cases/catalog.ts";
 import { TIME_EVENTS } from "../fishing/time-events.ts";
 
@@ -221,6 +221,7 @@ async function renderAprofileRodDetail(repo: Repo, userId: number, chatId: numbe
     `<b>Источник:</b> ${rod.acquisition === "case" ? "только из кейсов" : "магазин"}`,
     `<b>Бонус к поимке:</b> +${rod.catchBonusPoints} п.п.`,
     `<b>Бонус редкости:</b> +${rod.rarityStepBonus * 100}% за шаг`,
+    ...(rod.acquisition === "case" ? [`<b>Особый эффект:</b> ${rodSpecialEffectLabel(rod.specialEffect)}`] : []),
   ];
   const keyboard = new InlineKeyboard();
   if (rod.id !== "basic") keyboard.text(owned ? "Удалить удочку" : "Выдать удочку", buildAprofileCallback(userId, owned ? { kind: "removeRod", rodId } : { kind: "grantRod", rodId })).row();

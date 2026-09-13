@@ -16,6 +16,10 @@ test("case rod bonuses and duplicate compensation match the catalog", () => {
     [5, 0.05, 750], [7, 0.08, 900], [10, 0.12, 1_500], [12, 0.16, 1_900], [15, 0.22, 3_000],
     [18, 0.28, 4_000], [21, 0.36, 6_500], [24, 0.45, 8_500], [27, 0.58, 15_000], [30, 0.72, 30_000],
   ]);
+  expect(CASE_RODS.map((rod) => rod.specialEffect)).toEqual([
+    { kind: "modifier_chance", bonusPoints: 3 }, { kind: "rarity_chance", point: 1, chance: 6 }, { kind: "rarity_chance", point: 2, chance: 8 }, { kind: "modifier_chance", bonusPoints: 6 }, { kind: "rarity_chance", point: 3, chance: 10 },
+    { kind: "modifier_chance", bonusPoints: 10 }, { kind: "rarity_chance", point: 4, chance: 12 }, { kind: "modifier_chance", bonusPoints: 15 }, { kind: "rarity_chance", point: 5, chance: 15 }, { kind: "rarity_chance", point: 6, chance: 20 },
+  ]);
 });
 
 describe("rod catch bonuses", () => {
