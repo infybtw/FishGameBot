@@ -235,6 +235,9 @@ const SCHEMA_STATEMENTS = [
     event_id TEXT NOT NULL,
     started_at DOUBLE PRECISION NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS disabled_time_events (
+    event_id TEXT PRIMARY KEY
+  )`,
 ];
 
 export function createSql(databaseUrl: string): SQL {
@@ -337,6 +340,8 @@ export type Repo = {
   setTimeEventAnnouncement(eventId: string, startedAt: number): Promise<void>;
   getTimeEventStop(): Promise<TimeEventStop | null>;
   setTimeEventStop(eventId: string, startedAt: number): Promise<void>;
+  listDisabledTimeEventIds(): Promise<string[]>;
+  setTimeEventDisabled(eventId: string, disabled: boolean): Promise<void>;
   grantChanceUp(userId: number, chatId: number): Promise<void>;
   hasChanceUp(userId: number, chatId: number): Promise<boolean>;
   consumeChanceUp(userId: number, chatId: number): Promise<boolean>;
@@ -487,8 +492,19 @@ export function createRepo(sql: SQL): Repo {
       await sql`INSERT INTO time_event_stops (id, event_id, started_at)
         VALUES (1, ${eventId}, ${startedAt})
         ON CONFLICT (id) DO UPDATE SET
-          event_id = EXCLUDED.event_id,
-          started_at = EXCLUDED.started_at`;
+           event_id = EXCLUDED.event_id,
+           started_at = EXCLUDED.started_at`;
+    },
+    async listDisabledTimeEventIds(): Promise<string[]> {
+      const rows = (await sql`SELECT event_id FROM disabled_time_events ORDER BY event_id`) as Array<Record<string, unknown>>;
+      return rows.map((row) => String(row.event_id));
+    },
+    async setTimeEventDisabled(eventId: string, disabled: boolean): Promise<void> {
+      if (disabled) {
+        await sql`INSERT INTO disabled_time_events (event_id) VALUES (${eventId}) ON CONFLICT DO NOTHING`;
+      } else {
+        await sql`DELETE FROM disabled_time_events WHERE event_id = ${eventId}`;
+      }
     },
     async grantChanceUp(userId: number, chatId: number): Promise<void> {
       await sql`INSERT INTO chance_up (user_id, chat_id)

@@ -81,6 +81,7 @@ type FakeRepo = Repo & {
   catches: CatchInsert[];
   announcements: { eventId: string; startedAt: number } | null;
   stoppedEvent: { eventId: string; startedAt: number } | null;
+  disabledEventIds: Set<string>;
 };
 
 /** Fake stored cooldown pair; CATCH_DELAY substitute defaults to one hour. */
@@ -96,6 +97,7 @@ function createFakeRepo(): FakeRepo {
   const catches: CatchInsert[] = [];
   let announcements: { eventId: string; startedAt: number } | null = null;
   let stoppedEvent: { eventId: string; startedAt: number } | null = null;
+  const disabledEventIds = new Set<string>();
   const key = (userId: number, chatId: number) => `${userId}:${chatId}`;
   const unexpected = (name: string): never => {
     throw new Error(`Unexpected repo call in test: ${name}`);
@@ -106,6 +108,7 @@ function createFakeRepo(): FakeRepo {
     catchTimes,
     chanceUps,
     catches,
+    disabledEventIds,
     get announcements() {
       return announcements;
     },
@@ -212,6 +215,15 @@ function createFakeRepo(): FakeRepo {
     async setTimeEventStop(eventId, startedAt) {
       calls.push("setTimeEventStop");
       stoppedEvent = { eventId, startedAt };
+    },
+    async listDisabledTimeEventIds() {
+      calls.push("listDisabledTimeEventIds");
+      return [...disabledEventIds];
+    },
+    async setTimeEventDisabled(eventId, disabled) {
+      calls.push("setTimeEventDisabled");
+      if (disabled) disabledEventIds.add(eventId);
+      else disabledEventIds.delete(eventId);
     },
     async grantChanceUp(userId, chatId) {
       calls.push("grantChanceUp");

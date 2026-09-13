@@ -210,13 +210,14 @@ export function getActiveTimeEvent(now: Date, timeZone: string): ActiveTimeEvent
 }
 
 /** The earliest event start strictly after `now`; always exists within a week. */
-export function getNextTimeEvent(now: Date, timeZone: string): ActiveTimeEvent {
+export function getNextTimeEvent(now: Date, timeZone: string, disabledEventIds: ReadonlySet<string> = new Set()): ActiveTimeEvent {
   const today = getTimeZoneParts(now, timeZone);
   for (let dayOffset = 0; dayOffset <= 7; dayOffset++) {
     // Noon on the shifted calendar date keeps weekday arithmetic exact across DST.
     const day = getTimeZoneParts(new Date(Date.UTC(today.year, today.month - 1, today.day + dayOffset, 12)), timeZone);
     let best: ActiveTimeEvent | null = null;
     for (const event of TIME_EVENTS) {
+      if (disabledEventIds.has(event.id)) continue;
       if (!event.days.includes(day.weekday)) continue;
       const startsAt = localToUtcDate(day, timeZone, event.startHour);
       if (startsAt.getTime() <= now.getTime()) continue;

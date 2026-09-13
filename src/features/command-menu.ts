@@ -32,6 +32,7 @@ const OWNER_GROUP_COMMANDS: BotCommand[] = [
   { command: "aprofile", description: "Профиль игрока (реплаем)" },
   { command: "cclear", description: "Удалить сообщения и команды" },
   { command: "event_stop", description: "Остановить текущее событие" },
+  { command: "apanel", description: "Настройки бота" },
 ];
 
 /** Owner-only catalog maintenance commands, usable anywhere. */
@@ -44,6 +45,7 @@ const OWNER_PRIVATE_COMMANDS: BotCommand[] = [
   { command: "reload_fish_list", description: "Перезагрузить каталог" },
   { command: "cancel", description: "Отменить активный диалог" },
   { command: "cclear", description: "Удалить сообщения и команды" },
+  { command: "apanel", description: "Настройки бота" },
   INFO_COMMAND,
 ];
 

@@ -122,7 +122,11 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     // Modifiers are resolved once per attempt so the cooldown check and the
     // stored cooldown duration always describe the same attempt.
     const scheduledEvent = getActiveTimeEventNow(cfg.eventTimeZone);
-    const activeEvent = scheduledEvent !== null && isTimeEventOccurrence(scheduledEvent, await repo.getTimeEventStop()) ? null : scheduledEvent;
+    const [stoppedEvent, disabledEventIds] = await Promise.all([repo.getTimeEventStop(), repo.listDisabledTimeEventIds()]);
+    const activeEvent =
+      scheduledEvent !== null && !disabledEventIds.includes(scheduledEvent.event.id) && !isTimeEventOccurrence(scheduledEvent, stoppedEvent)
+        ? scheduledEvent
+        : null;
     const modifiers = getFishingModifiers(activeEvent);
     const cooldown = await checkCooldown(repo, cfg, userId, chatId, eventCooldownSeconds(cfg.catchDelaySeconds, modifiers));
     if (!cooldown.ok) {
@@ -352,8 +356,10 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     }
     const now = new Date(Date.now());
     const scheduled = getActiveTimeEvent(now, cfg.eventTimeZone);
-    const active = scheduled !== null && isTimeEventOccurrence(scheduled, await repo.getTimeEventStop()) ? null : scheduled;
-    const next = getNextTimeEvent(now, cfg.eventTimeZone);
+    const [stoppedEvent, disabledEventIds] = await Promise.all([repo.getTimeEventStop(), repo.listDisabledTimeEventIds()]);
+    const active =
+      scheduled !== null && !disabledEventIds.includes(scheduled.event.id) && !isTimeEventOccurrence(scheduled, stoppedEvent) ? scheduled : null;
+    const next = getNextTimeEvent(now, cfg.eventTimeZone, new Set(disabledEventIds));
     log.debug({ chatId: ctx.chat.id, eventId: active === null ? null : active.event.id }, "Event status requested");
     await ctx.reply(eventStatusMessage(active, next, cfg.eventTimeZone));
   });
@@ -364,7 +370,9 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
       return;
     }
     const scheduled = getActiveTimeEvent(new Date(Date.now()), cfg.eventTimeZone);
-    const active = scheduled !== null && isTimeEventOccurrence(scheduled, await repo.getTimeEventStop()) ? null : scheduled;
+    const [stoppedEvent, disabledEventIds] = await Promise.all([repo.getTimeEventStop(), repo.listDisabledTimeEventIds()]);
+    const active =
+      scheduled !== null && !disabledEventIds.includes(scheduled.event.id) && !isTimeEventOccurrence(scheduled, stoppedEvent) ? scheduled : null;
     log.debug({ chatId: ctx.chat.id, eventId: active === null ? null : active.event.id }, "Event schedule requested");
     await ctx.reply(eventScheduleMessage(cfg.eventTimeZone, active === null ? null : active.event.id));
   });

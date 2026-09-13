@@ -9,6 +9,7 @@ import { escapeHtml } from "../../lib/format.ts";
 import { log } from "../../logger.ts";
 import { inventoryCard, inventoryFishCard, profileCard } from "../upgrades/messages.ts";
 import { getRod, RODS } from "../upgrades/rods.ts";
+import { TIME_EVENTS } from "../fishing/time-events.ts";
 
 const ADD_INVITE =
   "Введите данные для добавления новой рыбы в формате:\nfish_name/fish_rarity/fish_rarity_point";
@@ -29,6 +30,7 @@ const CCLEAR_OK = (deleted: number) => `Удалено сообщений и к�
 const APROFILE_USAGE = "Использование: ответьте командой /aprofile на сообщение игрока.";
 const APROFILE_EMPTY = "У этого игрока ещё нет профиля в этом чате.";
 const APROFILE_STALE = "Меню устарело. Откройте профиль заново.";
+const APANEL_STALE = "Панель устарела. Откройте /apanel заново.";
 
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -70,6 +72,43 @@ function parseClearLimit(raw: string): number | null | undefined {
   if (!/^\d+$/.test(value)) return null;
   const limit = Number(value);
   return Number.isSafeInteger(limit) && limit > 0 ? limit : null;
+}
+
+type ApanelAction = { kind: "home" | "events" } | { kind: "toggle"; eventId: string };
+
+function buildApanelCallback(action: ApanelAction): string {
+  const payload = action.kind === "toggle" ? `apn:toggle:${action.eventId}` : `apn:${action.kind}`;
+  if (Buffer.byteLength(payload, "utf8") > 64) throw new Error("Telegram callback_data exceeds 64 bytes");
+  return payload;
+}
+
+function parseApanelCallback(payload: string): ApanelAction | null {
+  if (payload === "apn:home" || payload === "apn:events") return { kind: payload.slice(4) as "home" | "events" };
+  const match = /^apn:toggle:([a-z_]+)$/.exec(payload);
+  const eventId = match?.[1];
+  return eventId !== undefined && TIME_EVENTS.some((event) => event.id === eventId) ? { kind: "toggle", eventId } : null;
+}
+
+type ApanelScreen = { text: string; keyboard: InlineKeyboard };
+
+function renderApanelHome(): ApanelScreen {
+  return {
+    text: "<b>Панель администратора</b>\n\nВыберите раздел настроек.",
+    keyboard: new InlineKeyboard().text("События", buildApanelCallback({ kind: "events" })),
+  };
+}
+
+function renderApanelEvents(disabledEventIds: readonly string[]): ApanelScreen {
+  const disabled = new Set(disabledEventIds);
+  const keyboard = new InlineKeyboard();
+  const lines = ["<b>Настройки: события</b>", "", "Нажмите на событие, чтобы включить или отключить его."];
+  for (const event of TIME_EVENTS) {
+    const enabled = !disabled.has(event.id);
+    lines.push(`${enabled ? "✅" : "❌"} ${event.emoji} ${event.name}`);
+    keyboard.text(`${enabled ? "✅" : "❌"} ${event.name}`, buildApanelCallback({ kind: "toggle", eventId: event.id })).row();
+  }
+  keyboard.text("Назад", buildApanelCallback({ kind: "home" }));
+  return { text: lines.join("\n"), keyboard };
 }
 
 type AProfileAction =
@@ -374,6 +413,53 @@ export function registerAdminCommands(
     }
     log.info({ chatId: ctx.chat.id, requested: limit ?? "all", deleted }, "Bot messages and commands cleared by admin");
     await ctx.reply(CCLEAR_OK(deleted));
+  });
+
+  bot.command("apanel", async (ctx) => {
+    if (!isAdmin(ctx, cfg.adminUserId)) {
+      logAdminRejected(ctx, "apanel");
+      return;
+    }
+    if (ctx.chat === undefined) return;
+    const screen = renderApanelHome();
+    await ctx.api.sendMessage(ctx.chat.id, screen.text, {
+      reply_markup: screen.keyboard,
+      ephemeral_message_parameters: { receiver_user_id: cfg.adminUserId },
+    });
+  });
+
+  bot.callbackQuery(/^apn:/, async (ctx) => {
+    const action = parseApanelCallback(ctx.callbackQuery.data);
+    const message = ctx.callbackQuery.message;
+    if (
+      action === null ||
+      !isAdmin(ctx, cfg.adminUserId) ||
+      message === undefined ||
+      message.receiver_user?.id !== cfg.adminUserId ||
+      message.ephemeral_message_id === undefined
+    ) {
+      await ctx.answerCallbackQuery({ text: APANEL_STALE, show_alert: true });
+      return;
+    }
+    if (action.kind === "home") {
+      const screen = renderApanelHome();
+      await ctx.editEphemeralMessageText(screen.text, { reply_markup: screen.keyboard });
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    const disabled = new Set(await repo.listDisabledTimeEventIds());
+    if (action.kind === "toggle") {
+      const nowDisabled = !disabled.has(action.eventId);
+      await repo.setTimeEventDisabled(action.eventId, nowDisabled);
+      if (nowDisabled) disabled.add(action.eventId);
+      else disabled.delete(action.eventId);
+      log.info({ eventId: action.eventId, disabled: nowDisabled, chatId: message.chat.id }, "Time event setting changed by admin");
+      await ctx.answerCallbackQuery({ text: nowDisabled ? "Событие отключено." : "Событие включено." });
+    } else {
+      await ctx.answerCallbackQuery();
+    }
+    const screen = renderApanelEvents([...disabled]);
+    await ctx.editEphemeralMessageText(screen.text, { reply_markup: screen.keyboard });
   });
 
   bot.command("aprofile", async (ctx) => {

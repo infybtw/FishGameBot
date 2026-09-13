@@ -41,17 +41,21 @@ function createBot(messageIds: number[]): {
   deleted: number[];
   requested: Array<number | undefined>;
   replies: string[];
+  ephemeralReceiverIds: number[];
   removedFishIds: number[];
   removedRodIds: string[];
   grantedRodIds: string[];
+  disabledEventIds: Set<string>;
 } {
   const deleted: number[] = [];
   const requested: Array<number | undefined> = [];
   const replies: string[] = [];
+  const ephemeralReceiverIds: number[] = [];
   const forgotten: number[] = [];
   const removedFishIds: number[] = [];
   const removedRodIds: string[] = [];
   const grantedRodIds: string[] = [];
+  const disabledEventIds = new Set<string>();
   const repo = {
     async listRecentClearableMessageIds(_chatId: number, limit?: number) {
       requested.push(limit);
@@ -90,6 +94,13 @@ function createBot(messageIds: number[]): {
     async sellFish() {
       return { status: "sold" as const, count: 1, total: 100 };
     },
+    async listDisabledTimeEventIds() {
+      return [...disabledEventIds];
+    },
+    async setTimeEventDisabled(eventId: string, disabled: boolean) {
+      if (disabled) disabledEventIds.add(eventId);
+      else disabledEventIds.delete(eventId);
+    },
   } as unknown as Repo;
   const bot = new Bot<BotContext>(CFG.botToken, {
     botInfo: {
@@ -115,15 +126,17 @@ function createBot(messageIds: number[]): {
     }
     if (method === "sendMessage") {
       replies.push((payload as { text: string }).text);
+      const receiverUserId = (payload as { ephemeral_message_parameters?: { receiver_user_id?: number } }).ephemeral_message_parameters?.receiver_user_id;
+      if (receiverUserId !== undefined) ephemeralReceiverIds.push(receiverUserId);
       return { ok: true, result: { message_id: 2 } } as never;
     }
-    if (method === "editEphemeralMessageText" || method === "answerCallbackQuery") return { ok: true, result: true } as never;
+    if (method === "editEphemeralMessageText" || method === "editMessageText" || method === "answerCallbackQuery") return { ok: true, result: true } as never;
     throw new Error(`Unexpected API method: ${method}`);
   });
   bot.use(conversations());
   const catalogAccess: CatalogAccess = { async reload() { return []; } };
   registerAdminCommands(bot, CFG, repo, catalogAccess);
-  return { bot, deleted, requested, replies, removedFishIds, removedRodIds, grantedRodIds };
+  return { bot, deleted, requested, replies, ephemeralReceiverIds, removedFishIds, removedRodIds, grantedRodIds, disabledEventIds };
 }
 
 describe("/cclear", () => {
@@ -216,5 +229,83 @@ describe("/aprofile", () => {
       },
     } as Update);
     expect(grantedRodIds).toEqual(["carbon"]);
+  });
+});
+
+describe("/apanel", () => {
+  test("opens in a private chat and toggles a validated event", async () => {
+    const { bot, replies, ephemeralReceiverIds, disabledEventIds } = createBot([]);
+    await bot.handleUpdate({
+      update_id: 4,
+      message: {
+        message_id: 1,
+        date: 0,
+        chat: { id: ADMIN.id, type: "private", first_name: ADMIN.first_name },
+        from: { ...ADMIN, is_bot: false },
+        text: "/apanel",
+        entities: [{ type: "bot_command", offset: 0, length: 7 }],
+      },
+    } as Update);
+    expect(replies[0]).toContain("Панель администратора");
+    expect(replies[0]).not.toContain("Золотой час");
+    expect(ephemeralReceiverIds).toEqual([ADMIN.id]);
+
+    await bot.handleUpdate({
+      update_id: 5,
+      callback_query: {
+        id: "open-events",
+        from: { ...ADMIN, is_bot: false },
+        chat_instance: "instance",
+        data: "apn:events",
+        message: {
+          message_id: 2,
+          date: 0,
+          chat: CHAT,
+          from: { id: 99, is_bot: true, first_name: "FishBot" },
+          receiver_user: { id: ADMIN.id, is_bot: false, first_name: ADMIN.first_name },
+          ephemeral_message_id: 1,
+        },
+      },
+    } as Update);
+    await bot.handleUpdate({
+      update_id: 6,
+      callback_query: {
+        id: "toggle-event",
+        from: { ...ADMIN, is_bot: false },
+        chat_instance: "instance",
+        data: "apn:toggle:golden_hour",
+        message: {
+          message_id: 2,
+          date: 0,
+          chat: CHAT,
+          from: { id: 99, is_bot: true, first_name: "FishBot" },
+          receiver_user: { id: ADMIN.id, is_bot: false, first_name: ADMIN.first_name },
+          ephemeral_message_id: 1,
+        },
+      },
+    } as Update);
+    expect(disabledEventIds).toEqual(new Set(["golden_hour"]));
+  });
+
+  test("does not let non-admin users change event settings", async () => {
+    const { bot, disabledEventIds } = createBot([]);
+    await bot.handleUpdate({
+      update_id: 7,
+      callback_query: {
+        id: "blocked-toggle",
+        from: { id: 2, is_bot: false, first_name: "Игрок" },
+        chat_instance: "instance",
+        data: "apn:toggle:golden_hour",
+        message: {
+          message_id: 2,
+          date: 0,
+          chat: CHAT,
+          from: { id: 99, is_bot: true, first_name: "FishBot" },
+          receiver_user: { id: ADMIN.id, is_bot: false, first_name: ADMIN.first_name },
+          ephemeral_message_id: 1,
+        },
+      },
+    } as Update);
+    expect(disabledEventIds).toEqual(new Set());
   });
 });

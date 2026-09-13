@@ -22,6 +22,7 @@ function occurrence(active: ActiveTimeEvent): TimeEventAnnouncement {
 export async function announceActiveTimeEvent(repo: Repo, api: Api, timeZone: string, now: Date): Promise<TimeEventAnnouncement | null> {
   const active = getActiveTimeEvent(now, timeZone);
   if (active === null) return null;
+  if ((await repo.listDisabledTimeEventIds()).includes(active.event.id)) return null;
   const occurrence_ = occurrence(active);
   if (isTimeEventOccurrence(active, await repo.getTimeEventStop())) return null;
   const announced = await repo.getTimeEventAnnouncement();
