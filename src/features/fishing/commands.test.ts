@@ -1117,8 +1117,8 @@ test("/event is ignored in private chats", async () => {
   expect(sentTexts).toEqual([]);
 });
 
-test("/events lists the full schedule and marks the running event", async () => {
-  const { bot, sentTexts } = createTestBot();
+test("/events lists the full schedule and marks the running and disabled events", async () => {
+  const { bot, sentTexts, repo } = createTestBot();
   // Wednesday 12:30 MSK: golden hour is running.
   const nowSpy = spyOn(Date, "now").mockReturnValue(mskMs(2026, 9, 9, 12, 30));
 
@@ -1139,9 +1139,9 @@ test("/events lists the full schedule and marks the running event", async () => 
       "улов гарантированно редкости 2–6, персональный буст не тратится",
   );
 
-  // With nothing running, no entry carries the marker.
-  nowSpy.mockReturnValue(mskMs(2026, 9, 9, 10, 0));
+  repo.disabledEventIds.add("golden_hour");
   await bot.handleUpdate(commandUpdate({ updateId: 466, text: "/events", from: PLAYER }));
+  expect(sentTexts[1]).toContain("Золотой час</b> — каждый день, 12:00–13:00 <b>(отключено)</b>");
   expect(sentTexts[1]).not.toContain("идёт сейчас");
 
   nowSpy.mockRestore();

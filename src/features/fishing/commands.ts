@@ -374,7 +374,7 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     const active =
       scheduled !== null && !disabledEventIds.includes(scheduled.event.id) && !isTimeEventOccurrence(scheduled, stoppedEvent) ? scheduled : null;
     log.debug({ chatId: ctx.chat.id, eventId: active === null ? null : active.event.id }, "Event schedule requested");
-    await ctx.reply(eventScheduleMessage(cfg.eventTimeZone, active === null ? null : active.event.id));
+    await ctx.reply(eventScheduleMessage(cfg.eventTimeZone, active === null ? null : active.event.id, new Set(disabledEventIds)));
   });
 
   bot.command("event_stop", async (ctx) => {
