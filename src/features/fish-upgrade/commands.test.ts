@@ -115,7 +115,18 @@ function createFakeRepo(): FakeRepoState {
       return {
         fishes: available
           .slice((currentPage - 1) * pageSize, currentPage * pageSize)
-          .map(({ id, name, rarity, point, sizeCm, weightG, price }) => ({ id, name, rarity, point, sizeCm, weightG, price })),
+          .map(({ id, name, rarity, point, sizeCm, weightG, price }) => ({
+            id,
+            name,
+            rarity,
+            point,
+            sizeCm,
+            weightG,
+            price,
+            fishModifierId: null,
+            fishModifierName: null,
+            fishModifierRarity: null,
+          })),
         page: currentPage,
         totalCount,
         totalValue,
@@ -126,7 +137,18 @@ function createFakeRepo(): FakeRepoState {
       const fish = fishes.get(fishId);
       if (fish === undefined || fish.userId !== userId || fish.chatId !== chatId || fish.state !== "available") return null;
       const { id, name, rarity, point, sizeCm, weightG, price } = fish;
-      return { id, name, rarity, point, sizeCm, weightG, price };
+      return {
+        id,
+        name,
+        rarity,
+        point,
+        sizeCm,
+        weightG,
+        price,
+        fishModifierId: null,
+        fishModifierName: null,
+        fishModifierRarity: null,
+      };
     },
     async upgradeFish(input: UpgradeFishInput): Promise<UpgradeFishResult> {
       calls.push("upgradeFish");

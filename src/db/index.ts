@@ -606,7 +606,8 @@ export function createRepo(sql: SQL): Repo {
       };
     },
     async getAvailableCatch(userId, chatId, fishId): Promise<InventoryFishRow | null> {
-      const rows = (await sql`SELECT id, fish_name, fish_rarity, fish_rarity_point, fish_size, fish_weight, fish_price
+      const rows = (await sql`SELECT id, fish_name, fish_rarity, fish_rarity_point, fish_size, fish_weight, fish_price,
+          fish_modifier_id, fish_modifier_name, fish_modifier_rarity
         FROM caught_fishes
         WHERE id = ${fishId} AND user_id = ${userId} AND chat_id = ${chatId} AND inventory_state = 'available'`) as Array<
         Record<string, unknown>
@@ -621,6 +622,7 @@ export function createRepo(sql: SQL): Repo {
         sizeCm: asNumber(row.fish_size),
         weightG: asNumber(row.fish_weight),
         price: asNumber(row.fish_price),
+        ...modifierFields(row),
       };
     },
     async getRarityInventory(userId, chatId): Promise<RarityInventorySummary[]> {

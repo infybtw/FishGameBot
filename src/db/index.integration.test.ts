@@ -778,6 +778,9 @@ describe.skipIf(databaseUrl === undefined)("Repo fish upgrade integration", () =
       sizeCm: 30,
       weightG: 1000,
       price: 100,
+      fishModifierId: null,
+      fishModifierName: null,
+      fishModifierRarity: null,
     });
     expect(await repo.getAvailableCatch(2, -100, fishId)).toBeNull();
     expect(await repo.getAvailableCatch(1, -200, fishId)).toBeNull();
