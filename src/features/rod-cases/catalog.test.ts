@@ -12,7 +12,7 @@ describe("rollCaseRod", () => {
     expect(rollCaseRod("tackle_case", () => 0.5).rarity).toBe("Необычная");
     expect(rollCaseRod("tackle_case", () => 0.8).rarity).toBe("Редкая");
     expect(rollCaseRod("tackle_case", () => 0.989).rarity).toBe("Эпическая");
-    expect(rollCaseRod("tackle_case", () => 0.999).rarity).toBe("Легендарная");
+    expect(rollCaseRod("tackle_case", () => 0.998).rarity).toBe("Легендарная");
     expect(rollCaseRod("tackle_case", () => 0.9999).rarity).toBe("Мифическая");
   });
 

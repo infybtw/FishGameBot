@@ -79,6 +79,9 @@ function createBot(messageIds: number[]): {
     async listPurchasedRodIds() {
       return [];
     },
+    async listRodCaseBalances() {
+      return [];
+    },
     async removeInventoryFish(_userId: number, _chatId: number, fishId: number) {
       removedFishIds.push(fishId);
       return true;
