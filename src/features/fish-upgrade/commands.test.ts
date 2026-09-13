@@ -567,7 +567,6 @@ describe("fish upgrade attempts", () => {
     expect(text).toContain("Щука");
     expect(sends[0]!.payload.reply_markup).toBeUndefined();
     expect(text).toContain(`<a href="tg://user?id=${INITIATOR.id}">Иван</a>`);
-    expect(apiCalls).toContainEqual({ method: "deleteMessage", payload: { chat_id: GROUP_CHAT.id, message_id: 10 } });
     expect(answerCalls(apiCalls)[0]!.payload).toMatchObject({ text: "⬆️ Улучшение удалось!", show_alert: false });
   });
 
@@ -599,7 +598,6 @@ describe("fish upgrade attempts", () => {
     expect(sendCalls(apiCalls)).toHaveLength(1);
     expect(String(sendCalls(apiCalls)[0]!.payload.text)).toContain(`<a href="tg://user?id=${INITIATOR.id}">Иван</a>`);
     expect(String(sendCalls(apiCalls)[0]!.payload.text)).toContain("Улучшение не удалось");
-    expect(apiCalls).toContainEqual({ method: "deleteMessage", payload: { chat_id: GROUP_CHAT.id, message_id: 10 } });
     expect(answerCalls(apiCalls)[0]!.payload).toMatchObject({ text: "Попытка не удалась.", show_alert: false });
   });
 

@@ -212,7 +212,6 @@ export function registerFishUpgradeCommands(bot: Bot<BotContext>, repo: Repo): v
     const answer = answerForResult(result);
     if (isResolved(result)) {
       await ctx.api.sendMessage(chatId, `${playerMention(userId, firstName)}\n${screen.text}`);
-      await ctx.deleteMessage();
       await ctx.answerCallbackQuery({ text: answer.text, show_alert: answer.show_alert });
       return;
     }

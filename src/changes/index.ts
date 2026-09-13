@@ -1,3 +1,4 @@
+import { change as v0102 } from "./v0.10.2.ts";
 import { change as v0101 } from "./v0.10.1.ts";
 import { change as v0100 } from "./v0.10.0.ts";
 import { change as v091 } from "./v0.9.1.ts";
@@ -13,4 +14,4 @@ import { change as v055 } from "./v0.5.5.ts";
 import { change as v054 } from "./v0.5.4.ts";
 import { change as v053 } from "./v0.5.3.ts";
 
-export const LATEST_CHANGES = [v0101, v0100, v091, v090, v087, v086, v085, v082, v080, v070, v060, v055, v054, v053] as const;
+export const LATEST_CHANGES = [v0102, v0101, v0100, v091, v090, v087, v086, v085, v082, v080, v070, v060, v055, v054, v053] as const;
