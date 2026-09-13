@@ -52,6 +52,9 @@ function createRepoFake() {
     getRaritySalePreview: async () => null,
     purchaseRod: async () => ({ status: "already_owned" as const }),
     equipRod: async () => ({ status: "not_owned" as const }),
+    listRodCaseBalances: async () => [],
+    buyRodCase: async () => ({ status: "insufficient_balance" as const, required: 2_500, available: 0 }),
+    openRodCase: async () => ({ status: "no_case" as const }),
     multiplyBalance: async () => {
       throw new Error("Unexpected repo call in test: multiplyBalance");
     },
@@ -171,6 +174,19 @@ test("profile ensures the fisher before profile reads and binds keyboard ownersh
   expect(JSON.stringify(sent?.payload)).toContain('"ephemeral_message_parameters":{"receiver_user_id":11}');
   expect(JSON.stringify(sent?.payload.reply_markup)).toContain("upg:11:fish:1");
   expect(apiCalls).toContainEqual({ method: "deleteMessage", payload: { chat_id: -100, message_id: 1 } });
+});
+
+test("case purchase, opening, and missing case redraw the case screen", async () => {
+  const { repo } = createRepoFake();
+  const apiCalls: ApiCall[] = [];
+  repo.buyRodCase = async () => ({ status: "purchased", balance: 0, quantity: 1 });
+  repo.openRodCase = async () => ({ status: "opened", rodId: "reedwhisper", duplicate: true, compensation: 750, quantity: 0 });
+  const bot = createBot(repo, apiCalls);
+  await bot.handleUpdate(callbackUpdate(11, 11, buildCallbackData(11, { kind: "casebuy", caseId: "tackle_case" })) as never);
+  expect(String(apiCalls.find((call) => call.method === "editEphemeralMessageText")?.payload.text)).toContain("Кейсы с удочками");
+  apiCalls.length = 0;
+  await bot.handleUpdate(callbackUpdate(11, 11, buildCallbackData(11, { kind: "caseopen", caseId: "tackle_case" })) as never);
+  expect(String(apiCalls.find((call) => call.method === "editEphemeralMessageText")?.payload.text)).toContain("Компенсация");
 });
 
 test("purchase and equip failures redraw rod details with precise feedback", async () => {

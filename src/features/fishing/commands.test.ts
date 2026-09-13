@@ -277,6 +277,15 @@ function createFakeRepo(): FakeRepo {
     async equipRod() {
       return unexpected("equipRod");
     },
+    async listRodCaseBalances() {
+      return unexpected("listRodCaseBalances");
+    },
+    async buyRodCase() {
+      return unexpected("buyRodCase");
+    },
+    async openRodCase() {
+      return unexpected("openRodCase");
+    },
     async listTemplates() {
       return unexpected("listTemplates");
     },

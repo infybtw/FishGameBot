@@ -1,4 +1,5 @@
 import { getRod, type RodId } from "./rods.ts";
+import { getRodCase, type RodCaseId } from "../rod-cases/catalog.ts";
 
 export type UpgradeAction =
   | { kind: "home" }
@@ -10,7 +11,10 @@ export type UpgradeAction =
   | { kind: "rods" }
   | { kind: "rod"; rodId: RodId }
   | { kind: "buy"; rodId: RodId }
-  | { kind: "equip"; rodId: RodId };
+  | { kind: "equip"; rodId: RodId }
+  | { kind: "cases" }
+  | { kind: "casebuy"; caseId: RodCaseId }
+  | { kind: "caseopen"; caseId: RodCaseId };
 
 export type ParsedCallbackData = { ownerUserId: number; action: UpgradeAction };
 
@@ -22,6 +26,7 @@ function isPositiveSafeInteger(value: string | undefined): value is string {
 function isRodId(value: string | undefined): value is RodId {
   return value !== undefined && getRod(value) !== undefined;
 }
+function isRodCaseId(value: string | undefined): value is RodCaseId { return value !== undefined && getRodCase(value) !== undefined; }
 
 function assertPayload(payload: string): string {
   if (Buffer.byteLength(payload, "utf8") > 64) throw new Error("Telegram callback_data exceeds 64 bytes");
@@ -35,6 +40,7 @@ export function buildCallbackData(ownerUserId: number, action: UpgradeAction): s
     case "home":
     case "rarities":
     case "rods":
+    case "cases":
       return assertPayload(`${prefix}${action.kind}`);
     case "fish":
       if (!Number.isSafeInteger(action.page) || action.page <= 0) throw new Error("Page must be a positive safe integer");
@@ -55,17 +61,21 @@ export function buildCallbackData(ownerUserId: number, action: UpgradeAction): s
     case "equip":
       if (getRod(action.rodId) === undefined) throw new Error("Unknown rod ID");
       return assertPayload(`${prefix}${action.kind}:${action.rodId}`);
+    case "casebuy":
+    case "caseopen":
+      if (getRodCase(action.caseId) === undefined) throw new Error("Unknown rod case ID");
+      return assertPayload(`${prefix}${action.kind}:${action.caseId}`);
   }
 }
 
-const CALLBACK_PATTERN = /^upg:([1-9]\d*):(home|rarities|rods|fish:([1-9]\d*)|sell:([1-9]\d*)|rarity:([1-9]\d*)|sellr:([1-9]\d*):([1-9]\d*)|(rod|buy|equip):([a-z]+))$/;
+const CALLBACK_PATTERN = /^upg:([1-9]\d*):(home|rarities|rods|cases|fish:([1-9]\d*)|sell:([1-9]\d*)|rarity:([1-9]\d*)|sellr:([1-9]\d*):([1-9]\d*)|(rod|buy|equip|casebuy|caseopen):([a-z_]+))$/;
 
 export function parseCallbackData(payload: string): ParsedCallbackData | null {
   const match = CALLBACK_PATTERN.exec(payload);
   if (match === null || !isPositiveSafeInteger(match[1])) return null;
   const ownerUserId = Number(match[1]);
   const actionText = match[2]!;
-  if (actionText === "home" || actionText === "rarities" || actionText === "rods") {
+  if (actionText === "home" || actionText === "rarities" || actionText === "rods" || actionText === "cases") {
     return { ownerUserId, action: { kind: actionText } };
   }
   if (isPositiveSafeInteger(match[3])) return { ownerUserId, action: { kind: "fish", page: Number(match[3]) } };
@@ -73,6 +83,9 @@ export function parseCallbackData(payload: string): ParsedCallbackData | null {
   if (isPositiveSafeInteger(match[5])) return { ownerUserId, action: { kind: "rarity", point: Number(match[5]) } };
   if (isPositiveSafeInteger(match[6]) && isPositiveSafeInteger(match[7])) {
     return { ownerUserId, action: { kind: "sellr", point: Number(match[6]), maxFishId: Number(match[7]) } };
+  }
+  if (match[8] === "casebuy" || match[8] === "caseopen") {
+    return isRodCaseId(match[9]) ? { ownerUserId, action: { kind: match[8], caseId: match[9] } } : null;
   }
   if (match[8] !== undefined && isRodId(match[9])) {
     return { ownerUserId, action: { kind: match[8] as "rod" | "buy" | "equip", rodId: match[9] } };

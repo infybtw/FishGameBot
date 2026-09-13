@@ -94,6 +94,35 @@ describe.skipIf(databaseUrl === undefined)("Repo inventory economy integration",
     expect((await repo.getInventoryPage(1, -100, 1, 5)).fishes.map((fish) => fish.price)).toEqual([999]);
   });
 
+  test("buys and opens cases per user and chat, compensating duplicate rods", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(1, -100, "Player");
+    await repo.ensureFisher(1, -101, "Other chat");
+    await sql!`UPDATE fishers SET user_balance = 5_000 WHERE user_id = 1 AND chat_id = -100`;
+    expect(await repo.buyRodCase(1, -100, "tackle_case", 2_500)).toEqual({ status: "purchased", balance: 2_500, quantity: 1 });
+    expect(await repo.buyRodCase(1, -101, "tackle_case", 2_500)).toEqual({ status: "insufficient_balance", required: 2_500, available: 0 });
+    expect(await repo.openRodCase(1, -100, "tackle_case", "reedwhisper", 750)).toEqual({ status: "opened", rodId: "reedwhisper", duplicate: false, compensation: 0, quantity: 0 });
+    expect(await repo.buyRodCase(1, -100, "tackle_case", 2_500)).toEqual({ status: "purchased", balance: 0, quantity: 1 });
+    expect(await repo.openRodCase(1, -100, "tackle_case", "reedwhisper", 750)).toEqual({ status: "opened", rodId: "reedwhisper", duplicate: true, compensation: 750, quantity: 0 });
+    expect((await repo.getFisher(1, -100))!.balance).toBe(750);
+    expect(await repo.listPurchasedRodIds(1, -100)).toEqual(["reedwhisper"]);
+    expect(await repo.listRodCaseBalances(1, -101)).toEqual([]);
+  });
+
+  test("only one concurrent opening consumes the final case", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(1, -100, "Player");
+    await sql!`UPDATE fishers SET user_balance = 2_500 WHERE user_id = 1 AND chat_id = -100`;
+    await repo.buyRodCase(1, -100, "tackle_case", 2_500);
+    const results = await Promise.all([repo.openRodCase(1, -100, "tackle_case", "reedwhisper", 750), repo.openRodCase(1, -100, "tackle_case", "reedwhisper", 750)]);
+    expect(results.filter((result) => result.status === "opened")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "no_case")).toHaveLength(1);
+    expect(await repo.listPurchasedRodIds(1, -100)).toEqual(["reedwhisper"]);
+    expect((await repo.getFisher(1, -100))!.balance).toBe(0);
+  });
+
   test("marks an admin-removed catch as removed without changing balance", async () => {
     await migrateSchema(sql!);
     const repo = createRepo(sql!);

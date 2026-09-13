@@ -9,6 +9,7 @@ import { escapeHtml } from "../../lib/format.ts";
 import { log } from "../../logger.ts";
 import { inventoryCard, inventoryFishCard, profileCard } from "../upgrades/messages.ts";
 import { getRod, RODS } from "../upgrades/rods.ts";
+import { getRodCase } from "../rod-cases/catalog.ts";
 import { TIME_EVENTS } from "../fishing/time-events.ts";
 
 const ADD_INVITE =
@@ -153,15 +154,16 @@ function parseAprofileCallback(payload: string): { targetUserId: number; action:
 type AProfileScreen = { text: string; keyboard: InlineKeyboard };
 
 async function renderAprofileHome(repo: Repo, cfg: Config, userId: number, chatId: number): Promise<AProfileScreen> {
-  const [fisher, inventory, equippedRodId] = await Promise.all([
+  const [fisher, inventory, equippedRodId, caseBalances] = await Promise.all([
     repo.getFisher(userId, chatId),
     repo.getInventoryPage(userId, chatId, 1, 5),
     repo.getEquippedRodId(userId, chatId),
+    repo.listRodCaseBalances(userId, chatId),
   ]);
   if (fisher === null) return { text: APROFILE_EMPTY, keyboard: new InlineKeyboard() };
   const rod = getRod(equippedRodId ?? "basic") ?? getRod("basic")!;
   return {
-    text: `<b>Админ-профиль: ${escapeHtml(fisher.firstName)}</b>\n\n${profileCard(fisher.balance, rod, cfg.catchSuccessChance, inventory.totalCount, inventory.totalValue)}`,
+    text: `<b>Админ-профиль: ${escapeHtml(fisher.firstName)}</b>\n\n${profileCard(fisher.balance, rod, cfg.catchSuccessChance, inventory.totalCount, inventory.totalValue)}\n\n<b>Кейсы:</b> ${caseBalances.length === 0 ? "нет" : caseBalances.map((entry) => `${getRodCase(entry.caseId)?.name ?? entry.caseId}: ${entry.quantity}`).join(", ")}`,
     keyboard: new InlineKeyboard()
       .text("Рыба", buildAprofileCallback(userId, { kind: "fish", page: 1 }))
       .text("Удочки", buildAprofileCallback(userId, { kind: "rods" })),
@@ -215,6 +217,8 @@ async function renderAprofileRodDetail(repo: Repo, userId: number, chatId: numbe
     `🎣 <b>${escapeHtml(rod.name)}</b>`,
     "",
     `<b>Статус:</b> ${owned ? "✅ Выдана" : "❌ Не выдана"}${equipped === rod.id ? " · экипирована" : ""}`,
+    `<b>Редкость:</b> ${rod.rarity}`,
+    `<b>Источник:</b> ${rod.acquisition === "case" ? "только из кейсов" : "магазин"}`,
     `<b>Бонус к поимке:</b> +${rod.catchBonusPoints} п.п.`,
     `<b>Бонус редкости:</b> +${rod.rarityStepBonus * 100}% за шаг`,
   ];
