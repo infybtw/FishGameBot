@@ -46,6 +46,7 @@ function createBot(messageIds: number[]): {
   removedRodIds: string[];
   grantedRodIds: string[];
   disabledEventIds: Set<string>;
+  commandModes: Map<string, string>;
 } {
   const deleted: number[] = [];
   const requested: Array<number | undefined> = [];
@@ -56,6 +57,7 @@ function createBot(messageIds: number[]): {
   const removedRodIds: string[] = [];
   const grantedRodIds: string[] = [];
   const disabledEventIds = new Set<string>();
+  const commandModes = new Map<string, string>();
   const repo = {
     async listRecentClearableMessageIds(_chatId: number, limit?: number) {
       requested.push(limit);
@@ -104,6 +106,12 @@ function createBot(messageIds: number[]): {
       if (disabled) disabledEventIds.add(eventId);
       else disabledEventIds.delete(eventId);
     },
+    async getCommandOutputMode(command: string) {
+      return commandModes.get(command) ?? "normal";
+    },
+    async setCommandOutputMode(command: string, mode: string) {
+      commandModes.set(command, mode);
+    },
   } as unknown as Repo;
   const bot = new Bot<BotContext>(CFG.botToken, {
     botInfo: {
@@ -139,7 +147,7 @@ function createBot(messageIds: number[]): {
   bot.use(conversations());
   const catalogAccess: CatalogAccess = { async reload() { return []; } };
   registerAdminCommands(bot, CFG, repo, catalogAccess);
-  return { bot, deleted, requested, replies, ephemeralReceiverIds, removedFishIds, removedRodIds, grantedRodIds, disabledEventIds };
+  return { bot, deleted, requested, replies, ephemeralReceiverIds, removedFishIds, removedRodIds, grantedRodIds, disabledEventIds, commandModes };
 }
 
 describe("/cclear", () => {
@@ -310,5 +318,27 @@ describe("/apanel", () => {
       },
     } as Update);
     expect(disabledEventIds).toEqual(new Set());
+  });
+
+  test("selects an output mode for a command", async () => {
+    const { bot, commandModes } = createBot([]);
+    await bot.handleUpdate({
+      update_id: 8,
+      callback_query: {
+        id: "set-command-mode",
+        from: { ...ADMIN, is_bot: false },
+        chat_instance: "instance",
+        data: "apn:cmdmode:fish:personal",
+        message: {
+          message_id: 2,
+          date: 0,
+          chat: CHAT,
+          from: { id: 99, is_bot: true, first_name: "FishBot" },
+          receiver_user: { id: ADMIN.id, is_bot: false, first_name: ADMIN.first_name },
+          ephemeral_message_id: 1,
+        },
+      },
+    } as Update);
+    expect(commandModes).toEqual(new Map([["fish", "personal"]]));
   });
 });

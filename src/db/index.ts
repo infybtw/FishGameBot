@@ -73,6 +73,7 @@ export type FishingNetRow = {
   castAt: number;
   readyNotifiedAt: number | null;
 };
+export type CommandOutputMode = "normal" | "personal" | "off";
 
 export type FishingNetCollectResult =
   | { status: "collected"; castAt: number }
@@ -276,6 +277,10 @@ const SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS disabled_time_events (
     event_id TEXT PRIMARY KEY
   )`,
+  `CREATE TABLE IF NOT EXISTS command_output_settings (
+    command TEXT PRIMARY KEY,
+    mode TEXT NOT NULL CHECK (mode IN ('normal', 'personal', 'off'))
+  )`,
 ];
 
 export function createSql(databaseUrl: string): SQL {
@@ -380,6 +385,8 @@ export type Repo = {
   setTimeEventStop(eventId: string, startedAt: number): Promise<void>;
   listDisabledTimeEventIds(): Promise<string[]>;
   setTimeEventDisabled(eventId: string, disabled: boolean): Promise<void>;
+  getCommandOutputMode(command: string): Promise<CommandOutputMode>;
+  setCommandOutputMode(command: string, mode: CommandOutputMode): Promise<void>;
   grantChanceUp(userId: number, chatId: number): Promise<void>;
   hasChanceUp(userId: number, chatId: number): Promise<boolean>;
   consumeChanceUp(userId: number, chatId: number): Promise<boolean>;
@@ -548,6 +555,15 @@ export function createRepo(sql: SQL): Repo {
       } else {
         await sql`DELETE FROM disabled_time_events WHERE event_id = ${eventId}`;
       }
+    },
+    async getCommandOutputMode(command): Promise<CommandOutputMode> {
+      const rows = (await sql`SELECT mode FROM command_output_settings WHERE command = ${command}`) as Array<Record<string, unknown>>;
+      const mode = rows[0]?.mode;
+      return mode === "personal" || mode === "off" ? mode : "normal";
+    },
+    async setCommandOutputMode(command, mode): Promise<void> {
+      await sql`INSERT INTO command_output_settings (command, mode) VALUES (${command}, ${mode})
+        ON CONFLICT (command) DO UPDATE SET mode = EXCLUDED.mode`;
     },
     async grantChanceUp(userId: number, chatId: number): Promise<void> {
       await sql`INSERT INTO chance_up (user_id, chat_id)

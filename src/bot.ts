@@ -13,6 +13,7 @@ import { registerUpgradeCommands } from "./features/upgrades/commands.ts";
 import { registerTradeCommands } from "./features/trades/commands.ts";
 import { registerFishUpgradeCommands } from "./features/fish-upgrade/commands.ts";
 import { log } from "./logger.ts";
+import { fixedCommandOutputMode, isCommandOutputSetting } from "./features/command-output-settings.ts";
 
 export type BotContext = ConversationFlavor<Context>;
 export type FishConversation = Conversation<BotContext, Context>;
@@ -67,6 +68,53 @@ function getMessageText(message: { text?: unknown; caption?: unknown }): string 
   return typeof message.text === "string" ? message.text : typeof message.caption === "string" ? message.caption : null;
 }
 
+function commandForCallback(data: string | undefined): string | undefined {
+  if (data === undefined) return undefined;
+  if (data.startsWith("upg:")) return "profile";
+  if (data.startsWith("net:")) return "net";
+  if (data.startsWith("fup:")) return "fish_upgrade";
+  if (data.startsWith("tr:") || data.startsWith("trd:")) return "trade";
+  return undefined;
+}
+
+function configureCommandOutput(ctx: BotContext, repo: Repo, command: string | undefined): void {
+  if (command === undefined || (fixedCommandOutputMode(command) === undefined && !isCommandOutputSetting(command)) || ctx.from === undefined || ctx.chat === undefined) return;
+  const sourceChatId = ctx.chat.id;
+  const userId = ctx.from.id;
+  ctx.api.config.use(async (prev, method, payload, signal) => {
+    if (method !== "sendMessage" && method !== "sendDocument" && method !== "editEphemeralMessageText") {
+      return prev(method, payload, signal);
+    }
+    const mode = fixedCommandOutputMode(command) ?? (await repo.getCommandOutputMode(command));
+    if (mode === "off") return { ok: true, result: true } as never;
+    const data = payload as Record<string, unknown>;
+    const existingPersonal = ctx.callbackQuery?.message?.receiver_user?.id === userId;
+    if (method === "editEphemeralMessageText") {
+      if ((mode === "personal") === existingPersonal) return prev(method, payload, signal);
+      const { ephemeral_message_id: _ephemeralMessageId, ...screen } = data;
+      return prev(
+        "sendMessage" as never,
+        {
+          ...screen,
+          chat_id: sourceChatId,
+          ...(mode === "personal" ? { ephemeral_message_parameters: { receiver_user_id: userId } } : {}),
+        } as never,
+        signal,
+      );
+    }
+    if (data.chat_id !== sourceChatId) return prev(method, payload, signal);
+    const { reply_parameters: _replyParameters, ephemeral_message_parameters: _ephemeralParameters, ...message } = data;
+    return prev(
+      method,
+      {
+        ...message,
+        ...(mode === "personal" ? { ephemeral_message_parameters: { receiver_user_id: userId } } : {}),
+      } as never,
+      signal,
+    );
+  });
+}
+
 export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess): Bot<BotContext> {
   const bot = new Bot<BotContext>(cfg.botToken);
   // HTML is the default parse mode for outgoing messages; an explicit
@@ -104,6 +152,7 @@ export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess)
     } else {
       log.debug({ updateId: ctx.update.update_id, userId: ctx.from?.id, chatId: ctx.chat?.id }, "Update received");
     }
+    configureCommandOutput(ctx, repo, command ?? commandForCallback(ctx.callbackQuery?.data));
     return next();
   });
   bot.use(conversations());
