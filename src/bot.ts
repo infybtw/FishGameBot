@@ -152,8 +152,27 @@ export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess)
     } else {
       log.debug({ updateId: ctx.update.update_id, userId: ctx.from?.id, chatId: ctx.chat?.id }, "Update received");
     }
-    configureCommandOutput(ctx, repo, command ?? commandForCallback(ctx.callbackQuery?.data));
-    return next();
+    const outputCommand = command ?? commandForCallback(ctx.callbackQuery?.data);
+    configureCommandOutput(ctx, repo, outputCommand);
+    await next();
+    const commandMessage = ctx.message;
+    const commandChat = ctx.chat;
+    if (
+      command === undefined ||
+      commandMessage === undefined ||
+      commandChat === undefined ||
+      commandChat.type === "private" ||
+      !isCommandForThisBot(ctx, commandMessage.text ?? "") ||
+      (fixedCommandOutputMode(command) ?? (isCommandOutputSetting(command) ? await repo.getCommandOutputMode(command) : "normal")) !== "personal"
+    ) {
+      return;
+    }
+    try {
+      await ctx.deleteMessage();
+    } catch (err) {
+      // Some interactive commands delete their own invocation before returning.
+      log.debug({ err, chatId: commandChat.id, messageId: commandMessage.message_id }, "Personal command message was already deleted");
+    }
   });
   bot.use(conversations());
   registerGroupCommands(bot, cfg, repo);
