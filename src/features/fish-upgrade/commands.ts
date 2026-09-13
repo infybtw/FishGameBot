@@ -2,6 +2,7 @@ import { InlineKeyboard, type Bot, type Context } from "grammy";
 import type { BotContext } from "../../bot.ts";
 import type { InventoryPage, Repo, UpgradeFishResult } from "../../db/index.ts";
 import { isGroup } from "../../guards.ts";
+import { escapeHtml } from "../../lib/format.ts";
 import { log } from "../../logger.ts";
 import { getCatalog } from "../fishing/catalog.ts";
 import { generateCatch } from "../fishing/generator.ts";
@@ -66,10 +67,6 @@ async function renderList(repo: Repo, ownerUserId: number, chatId: number, page:
   return { text: upgradeMenuCard(inventory), keyboard: listKeyboard(ownerUserId, inventory) };
 }
 
-/**
- * The menu is a public group message, but only the owner's presses carry a
- * matching owner ID, so other players can watch yet never operate it.
- */
 function confirmKeyboard(ownerUserId: number, fishId: number): InlineKeyboard {
   return new InlineKeyboard()
     .text("🎣 Улучшить", buildFishUpgradeCallbackData(ownerUserId, { kind: "apply", fishId }))
@@ -121,6 +118,14 @@ function answerForResult(result: UpgradeFishResult): { text: string; show_alert:
   }
 }
 
+function isResolved(result: UpgradeFishResult): result is Extract<UpgradeFishResult, { status: "upgraded" | "failed" }> {
+  return result.status === "upgraded" || result.status === "failed";
+}
+
+function playerMention(userId: number, firstName: string): string {
+  return `<a href="tg://user?id=${userId}">${escapeHtml(firstName)}</a>`;
+}
+
 export function registerFishUpgradeCommands(bot: Bot<BotContext>, repo: Repo): void {
   bot.command("fish_upgrade", async (ctx) => {
     if (!isGroup(ctx) || ctx.from === undefined) {
@@ -132,7 +137,10 @@ export function registerFishUpgradeCommands(bot: Bot<BotContext>, repo: Repo): v
     await repo.ensureFisher(userId, chatId, ctx.from.first_name);
     const screen = await renderList(repo, userId, chatId, 1);
     log.info({ userId, chatId }, "Fish upgrade menu opened");
-    await ctx.api.sendMessage(chatId, screen.text, { reply_markup: screen.keyboard });
+    await ctx.api.sendMessage(chatId, screen.text, {
+      reply_markup: screen.keyboard,
+      ephemeral_message_parameters: { receiver_user_id: userId },
+    });
     await ctx.deleteMessage();
   });
 
@@ -147,24 +155,30 @@ export function registerFishUpgradeCommands(bot: Bot<BotContext>, repo: Repo): v
       await ctx.answerCallbackQuery({ text: FISH_UPGRADE_FOREIGN, show_alert: true });
       return;
     }
-    if (!isGroup(ctx) || ctx.callbackQuery.message === undefined) {
-      await answerStale(ctx, ctx.from.id, ctx.chat?.id, "callback outside a group message");
+    const callbackMessage = ctx.callbackQuery.message;
+    if (
+      !isGroup(ctx) ||
+      callbackMessage === undefined ||
+      callbackMessage.receiver_user?.id !== ctx.from.id ||
+      callbackMessage.ephemeral_message_id === undefined
+    ) {
+      await answerStale(ctx, ctx.from.id, ctx.chat?.id, "missing owner-bound ephemeral message");
       return;
     }
 
     const userId = ctx.from.id;
-    const chatId = ctx.callbackQuery.message.chat.id;
+    const chatId = callbackMessage.chat.id;
 
     if (parsed.action.kind === "list") {
       const screen = await renderList(repo, userId, chatId, parsed.action.page);
-      await ctx.editMessageText(screen.text, { reply_markup: screen.keyboard });
+      await ctx.editEphemeralMessageText(screen.text, { reply_markup: screen.keyboard });
       await ctx.answerCallbackQuery();
       return;
     }
 
     if (parsed.action.kind === "confirm") {
       const screen = await renderConfirm(repo, userId, chatId, parsed.action.fishId);
-      await ctx.editMessageText(screen.text, { reply_markup: screen.keyboard });
+      await ctx.editEphemeralMessageText(screen.text, { reply_markup: screen.keyboard });
       await ctx.answerCallbackQuery();
       return;
     }
@@ -195,8 +209,14 @@ export function registerFishUpgradeCommands(bot: Bot<BotContext>, repo: Repo): v
       "Fish upgrade attempt",
     );
     const screen = resultScreen(result, userId);
-    await ctx.editMessageText(screen.text, { reply_markup: screen.keyboard });
     const answer = answerForResult(result);
+    if (isResolved(result)) {
+      await ctx.api.sendMessage(chatId, `${playerMention(userId, firstName)}\n${screen.text}`);
+      await ctx.deleteMessage();
+      await ctx.answerCallbackQuery({ text: answer.text, show_alert: answer.show_alert });
+      return;
+    }
+    await ctx.editEphemeralMessageText(screen.text, { reply_markup: screen.keyboard });
     await ctx.answerCallbackQuery({ text: answer.text, show_alert: answer.show_alert });
   });
 }

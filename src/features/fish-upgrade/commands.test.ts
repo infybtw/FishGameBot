@@ -46,8 +46,8 @@ function commandUpdate(spec: { updateId: number; text: string; chat?: CommandCha
   } as Update;
 }
 
-/** Menu presses arrive on the public group menu message. */
-function menuCallback(spec: { updateId: number; ownerId: number; pressingId: number; data: string }): Update {
+/** Menu presses arrive on an ephemeral message bound to its owner. */
+function menuCallback(spec: { updateId: number; ownerId: number; pressingId: number; data: string; ephemeral?: boolean }): Update {
   return {
     update_id: spec.updateId,
     callback_query: {
@@ -61,6 +61,12 @@ function menuCallback(spec: { updateId: number; ownerId: number; pressingId: num
         chat: { id: GROUP_CHAT.id, type: "supergroup", title: "Рыбаки" },
         from: BOT_USER,
         text: "🎣 Улучшение рыбы",
+        ...(spec.ephemeral === false
+          ? {}
+          : {
+              receiver_user: toUser({ id: spec.ownerId, first_name: INITIATOR.first_name }),
+              ephemeral_message_id: 20,
+            }),
       },
     },
   } as Update;
@@ -254,7 +260,7 @@ function answerCalls(apiCalls: ApiCall[]): ApiCall[] {
 }
 
 function editCalls(apiCalls: ApiCall[]): ApiCall[] {
-  return apiCalls.filter((call) => call.method === "editMessageText");
+  return apiCalls.filter((call) => call.method === "editEphemeralMessageText");
 }
 
 function availableFish(fishes: Map<number, FakeFish>): FakeFish[] {
@@ -262,7 +268,7 @@ function availableFish(fishes: Map<number, FakeFish>): FakeFish[] {
 }
 
 describe("/fish_upgrade command", () => {
-  test("a group invocation opens a public menu and deletes the command", async () => {
+  test("a group invocation opens an owner-bound ephemeral menu and deletes the command", async () => {
     setCatalog(TEST_CATALOG);
     const { repo, calls, fishers, fishes } = createFakeRepo();
     seedFisher(fishers, INITIATOR);
@@ -273,7 +279,7 @@ describe("/fish_upgrade command", () => {
 
     const sends = sendCalls(apiCalls);
     expect(sends).toHaveLength(1);
-    expect(sends[0]!.payload.ephemeral_message_parameters).toBeUndefined();
+    expect(sends[0]!.payload.ephemeral_message_parameters).toEqual({ receiver_user_id: INITIATOR.id });
     const text = String(sends[0]!.payload.text);
     expect(text).toContain("Улучшение рыбы");
     expect(text).toContain("1→2: 80%");
@@ -504,6 +510,28 @@ describe("fish upgrade attempts", () => {
     expect(calls).not.toContain("upgradeFish");
   });
 
+  test("a callback from a public menu is rejected as stale", async () => {
+    setCatalog(TEST_CATALOG);
+    const { repo, calls, fishers, fishes } = createFakeRepo();
+    seedFisher(fishers, INITIATOR);
+    seedFish(fishes, 1, INITIATOR);
+    const { bot, apiCalls } = createTestBot(repo);
+
+    await bot.handleUpdate(
+      menuCallback({
+        updateId: 1,
+        ownerId: INITIATOR.id,
+        pressingId: INITIATOR.id,
+        data: buildFishUpgradeCallbackData(INITIATOR.id, { kind: "confirm", fishId: 1 }),
+        ephemeral: false,
+      }),
+    );
+
+    expect(answerCalls(apiCalls)[0]!.payload).toMatchObject({ text: STALE_MENU_ALERT, show_alert: true });
+    expect(editCalls(apiCalls)).toHaveLength(0);
+    expect(calls).not.toContain("getAvailableCatch");
+  });
+
   test("success spends the source and adds exactly one point+1 fish", async () => {
     setCatalog(TEST_CATALOG);
     const { repo, calls, fishers, fishes } = createFakeRepo();
@@ -530,13 +558,16 @@ describe("fish upgrade attempts", () => {
     const created = availableFish(fishes);
     expect(created).toHaveLength(1);
     expect(created[0]).toMatchObject({ userId: INITIATOR.id, chatId: GROUP_CHAT.id, name: "Щука", point: 2, state: "available" });
-    const edits = editCalls(apiCalls);
-    expect(edits).toHaveLength(1);
-    const text = String(edits[0]!.payload.text);
+    expect(editCalls(apiCalls)).toHaveLength(0);
+    const sends = sendCalls(apiCalls);
+    expect(sends).toHaveLength(1);
+    const text = String(sends[0]!.payload.text);
     expect(text).toContain("Улучшение удалось");
     expect(text).toContain("#1");
     expect(text).toContain("Щука");
-    expect(edits[0]!.payload.reply_markup).toBeUndefined();
+    expect(sends[0]!.payload.reply_markup).toBeUndefined();
+    expect(text).toContain(`<a href="tg://user?id=${INITIATOR.id}">Иван</a>`);
+    expect(apiCalls).toContainEqual({ method: "deleteMessage", payload: { chat_id: GROUP_CHAT.id, message_id: 10 } });
     expect(answerCalls(apiCalls)[0]!.payload).toMatchObject({ text: "⬆️ Улучшение удалось!", show_alert: false });
   });
 
@@ -564,10 +595,11 @@ describe("fish upgrade attempts", () => {
     expect(calls).toContain("upgradeFish");
     expect(fishes.get(1)!.state).toBe("spent");
     expect(availableFish(fishes)).toHaveLength(0);
-    const edits = editCalls(apiCalls);
-    expect(edits).toHaveLength(1);
-    expect(String(edits[0]!.payload.text)).toContain("Улучшение не удалось");
-    expect(edits[0]!.payload.reply_markup).toBeUndefined();
+    expect(editCalls(apiCalls)).toHaveLength(0);
+    expect(sendCalls(apiCalls)).toHaveLength(1);
+    expect(String(sendCalls(apiCalls)[0]!.payload.text)).toContain(`<a href="tg://user?id=${INITIATOR.id}">Иван</a>`);
+    expect(String(sendCalls(apiCalls)[0]!.payload.text)).toContain("Улучшение не удалось");
+    expect(apiCalls).toContainEqual({ method: "deleteMessage", payload: { chat_id: GROUP_CHAT.id, message_id: 10 } });
     expect(answerCalls(apiCalls)[0]!.payload).toMatchObject({ text: "Попытка не удалась.", show_alert: false });
   });
 
