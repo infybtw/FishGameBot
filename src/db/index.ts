@@ -63,6 +63,9 @@ export type PurchaseResult =
   | { status: "insufficient_balance"; required: number; available: number }
   | { status: "insufficient_fish"; point: number; required: number; available: number };
 export type EquipResult = { status: "equipped" } | { status: "not_owned" };
+export type RodCaseBalance = { caseId: string; quantity: number };
+export type BuyRodCaseResult = { status: "purchased"; balance: number; quantity: number } | { status: "insufficient_balance"; required: number; available: number };
+export type OpenRodCaseResult = { status: "opened"; rodId: string; duplicate: boolean; compensation: number; quantity: number } | { status: "no_case" };
 export type FishingNetRow = {
   userId: number;
   chatId: number;
@@ -70,6 +73,7 @@ export type FishingNetRow = {
   castAt: number;
   readyNotifiedAt: number | null;
 };
+export type CommandOutputMode = "normal" | "personal" | "off";
 
 export type FishingNetCollectResult =
   | { status: "collected"; castAt: number }
@@ -227,6 +231,14 @@ const SCHEMA_STATEMENTS = [
     deleted_at TIMESTAMPTZ,
     PRIMARY KEY (chat_id, message_id)
   )`,
+  `CREATE TABLE IF NOT EXISTS fisher_rod_cases (
+   user_id BIGINT NOT NULL,
+   chat_id BIGINT NOT NULL,
+   case_id TEXT NOT NULL,
+   quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+   PRIMARY KEY (user_id, chat_id, case_id),
+   FOREIGN KEY (user_id, chat_id) REFERENCES fishers(user_id, chat_id) ON DELETE CASCADE
+  )`,
   `ALTER TABLE bot_messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
   `CREATE INDEX IF NOT EXISTS bot_messages_active_cleanup_idx
     ON bot_messages (chat_id, sent_at DESC, message_id DESC) WHERE deleted_at IS NULL`,
@@ -264,6 +276,10 @@ const SCHEMA_STATEMENTS = [
   )`,
   `CREATE TABLE IF NOT EXISTS disabled_time_events (
     event_id TEXT PRIMARY KEY
+  )`,
+  `CREATE TABLE IF NOT EXISTS command_output_settings (
+    command TEXT PRIMARY KEY,
+    mode TEXT NOT NULL CHECK (mode IN ('normal', 'personal', 'off'))
   )`,
 ];
 
@@ -369,6 +385,8 @@ export type Repo = {
   setTimeEventStop(eventId: string, startedAt: number): Promise<void>;
   listDisabledTimeEventIds(): Promise<string[]>;
   setTimeEventDisabled(eventId: string, disabled: boolean): Promise<void>;
+  getCommandOutputMode(command: string): Promise<CommandOutputMode>;
+  setCommandOutputMode(command: string, mode: CommandOutputMode): Promise<void>;
   grantChanceUp(userId: number, chatId: number): Promise<void>;
   hasChanceUp(userId: number, chatId: number): Promise<boolean>;
   consumeChanceUp(userId: number, chatId: number): Promise<boolean>;
@@ -388,6 +406,9 @@ export type Repo = {
   grantPurchasedRod(userId: number, chatId: number, rodId: string): Promise<boolean>;
   getEquippedRodId(userId: number, chatId: number): Promise<string | null>;
   equipRod(userId: number, chatId: number, rodId: string): Promise<EquipResult>;
+  listRodCaseBalances(userId: number, chatId: number): Promise<RodCaseBalance[]>;
+  buyRodCase(userId: number, chatId: number, caseId: string, price: number): Promise<BuyRodCaseResult>;
+  openRodCase(userId: number, chatId: number, caseId: string, rodId: string, duplicateCompensation: number): Promise<OpenRodCaseResult>;
   listTemplates(): Promise<FishTemplateRow[]>;
   replaceAllTemplates(templates: FishTemplateInsert[]): Promise<number>;
   getTopFishers(chatId: number, limit?: number): Promise<TopFisherRow[]>;
@@ -534,6 +555,15 @@ export function createRepo(sql: SQL): Repo {
       } else {
         await sql`DELETE FROM disabled_time_events WHERE event_id = ${eventId}`;
       }
+    },
+    async getCommandOutputMode(command): Promise<CommandOutputMode> {
+      const rows = (await sql`SELECT mode FROM command_output_settings WHERE command = ${command}`) as Array<Record<string, unknown>>;
+      const mode = rows[0]?.mode;
+      return mode === "personal" || mode === "off" ? mode : "normal";
+    },
+    async setCommandOutputMode(command, mode): Promise<void> {
+      await sql`INSERT INTO command_output_settings (command, mode) VALUES (${command}, ${mode})
+        ON CONFLICT (command) DO UPDATE SET mode = EXCLUDED.mode`;
     },
     async grantChanceUp(userId: number, chatId: number): Promise<void> {
       await sql`INSERT INTO chance_up (user_id, chat_id)
@@ -770,6 +800,41 @@ export function createRepo(sql: SQL): Repo {
           AND EXISTS (SELECT 1 FROM fisher_rods r WHERE r.user_id = fishers.user_id
             AND r.chat_id = fishers.chat_id AND r.rod_id = ${rodId})`;
       return result.count === 1 ? { status: "equipped" } : { status: "not_owned" };
+    },
+    async listRodCaseBalances(userId, chatId): Promise<RodCaseBalance[]> {
+      const rows = (await sql`SELECT case_id, quantity FROM fisher_rod_cases
+        WHERE user_id = ${userId} AND chat_id = ${chatId} ORDER BY case_id`) as Array<Record<string, unknown>>;
+      return rows.map((row) => ({ caseId: String(row.case_id), quantity: asNumber(row.quantity) }));
+    },
+    async buyRodCase(userId, chatId, caseId, price): Promise<BuyRodCaseResult> {
+      return sql.begin(async (tx) => {
+        const rows = (await tx`SELECT user_balance FROM fishers WHERE user_id = ${userId} AND chat_id = ${chatId} FOR UPDATE`) as Array<Record<string, unknown>>;
+        const fisher = rows[0];
+        if (fisher === undefined) throw new Error("buyRodCase requires an existing fisher");
+        const balance = asNumber(fisher.user_balance);
+        if (balance < price) return { status: "insufficient_balance", required: price, available: balance };
+        await tx`UPDATE fishers SET user_balance = user_balance - ${price} WHERE user_id = ${userId} AND chat_id = ${chatId}`;
+        const cases = (await tx`INSERT INTO fisher_rod_cases (user_id, chat_id, case_id, quantity)
+          VALUES (${userId}, ${chatId}, ${caseId}, 1)
+          ON CONFLICT (user_id, chat_id, case_id) DO UPDATE SET quantity = fisher_rod_cases.quantity + 1
+          RETURNING quantity`) as Array<Record<string, unknown>>;
+        return { status: "purchased", balance: balance - price, quantity: asNumber(cases[0]!.quantity) };
+      });
+    },
+    async openRodCase(userId, chatId, caseId, rodId, duplicateCompensation): Promise<OpenRodCaseResult> {
+      return sql.begin(async (tx) => {
+        const cases = (await tx`UPDATE fisher_rod_cases SET quantity = quantity - 1
+          WHERE user_id = ${userId} AND chat_id = ${chatId} AND case_id = ${caseId} AND quantity > 0
+          RETURNING quantity`) as Array<Record<string, unknown>>;
+        const caseRow = cases[0];
+        if (caseRow === undefined) return { status: "no_case" };
+        const inserted = await tx`INSERT INTO fisher_rods (user_id, chat_id, rod_id)
+          VALUES (${userId}, ${chatId}, ${rodId}) ON CONFLICT DO NOTHING`;
+        const duplicate = inserted.count === 0;
+        if (duplicate) await tx`UPDATE fishers SET user_balance = user_balance + ${duplicateCompensation}
+          WHERE user_id = ${userId} AND chat_id = ${chatId}`;
+        return { status: "opened", rodId, duplicate, compensation: duplicate ? duplicateCompensation : 0, quantity: asNumber(caseRow.quantity) };
+      });
     },
     async getTopFishers(chatId, limit = 10): Promise<TopFisherRow[]> {
       const rows = (await sql`SELECT f.user_first_name, COALESCE(SUM(c.fish_price), 0) AS total

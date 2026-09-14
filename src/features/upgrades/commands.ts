@@ -14,9 +14,12 @@ import {
   raritySaleCard,
   raritySaleConfirmation,
   rodDetailCard,
+  rodCaseResultCard,
+  rodCasesCard,
   rodsCard,
 } from "./messages.ts";
 import { getRod, RODS, type RodDefinition, type RodId } from "./rods.ts";
+import { ROD_CASES, getRodCase, rollCaseRod } from "../rod-cases/catalog.ts";
 
 const PAGE_SIZE = 5;
 const FOREIGN_MENU_ALERT = "Это меню принадлежит другому игроку.";
@@ -41,7 +44,9 @@ function homeKeyboard(ownerUserId: number): InlineKeyboard {
   return new InlineKeyboard()
     .text("🎒 Инвентарь", buildCallbackData(ownerUserId, { kind: "fish", page: 1 }))
     .row()
-    .text("🎣 Удочки", buildCallbackData(ownerUserId, { kind: "rods" }));
+    .text("🎣 Удочки", buildCallbackData(ownerUserId, { kind: "rods" }))
+    .row()
+    .text("📦 Кейсы", buildCallbackData(ownerUserId, { kind: "cases" }));
 }
 
 async function renderHome(repo: Repo, cfg: Config, userId: number, chatId: number): Promise<Screen> {
@@ -119,6 +124,21 @@ async function renderRods(repo: Repo, userId: number, chatId: number): Promise<S
   return { text: rodsCard(rods), keyboard };
 }
 
+async function renderCases(repo: Repo, userId: number, chatId: number): Promise<Screen> {
+  const [fisher, balances] = await Promise.all([repo.getFisher(userId, chatId), repo.listRodCaseBalances(userId, chatId)]);
+  if (fisher === null) throw new Error("Case rendering requires an existing fisher");
+  const quantities = new Map(balances.map((balance) => [balance.caseId, balance.quantity]));
+  const cases = ROD_CASES.map((case_) => ({ case: case_, quantity: quantities.get(case_.id) ?? 0 }));
+  const keyboard = new InlineKeyboard();
+  for (const { case: case_, quantity } of cases) {
+    keyboard.text(`Купить ${case_.name}`, buildCallbackData(userId, { kind: "casebuy", caseId: case_.id }));
+    if (quantity > 0) keyboard.text(`Открыть (${quantity})`, buildCallbackData(userId, { kind: "caseopen", caseId: case_.id }));
+    keyboard.row();
+  }
+  keyboard.text("Назад", buildCallbackData(userId, { kind: "home" }));
+  return { text: rodCasesCard(fisher.balance, cases), keyboard };
+}
+
 async function renderRodDetail(
   repo: Repo,
   userId: number,
@@ -130,7 +150,7 @@ async function renderRodDetail(
   const state = rodState(rod.id, context.equippedRodId, context.purchasedRodIds);
   const unavailablePoints = new Set<number>();
   const catalog = getCatalog();
-  for (const requirement of rod.recipe) {
+  for (const requirement of rod.acquisition === "shop" ? rod.recipe : []) {
     if (catalog[requirement.point - 1]?.length !== undefined && catalog[requirement.point - 1]!.length === 0) {
       unavailablePoints.add(requirement.point);
     }
@@ -138,7 +158,7 @@ async function renderRodDetail(
   }
   const keyboard = new InlineKeyboard();
   if (state === "Куплена") keyboard.text("Экипировать", buildCallbackData(userId, { kind: "equip", rodId: rod.id })).row();
-  if (state === "Не куплена") keyboard.text("Купить и экипировать", buildCallbackData(userId, { kind: "buy", rodId: rod.id })).row();
+  if (state === "Не куплена" && rod.acquisition === "shop") keyboard.text("Купить и экипировать", buildCallbackData(userId, { kind: "buy", rodId: rod.id })).row();
   keyboard.text("Назад", buildCallbackData(userId, { kind: "rods" }));
   const text = rodDetailCard(rod, state, context.balance, context.inventory, unavailablePoints);
   return { text: notice === undefined ? text : `${text}\n\n⚠️ ${notice}`, keyboard };
@@ -247,6 +267,9 @@ export function registerUpgradeCommands(bot: Bot<BotContext>, cfg: Config, repo:
       case "rods":
         screen = await renderRods(repo, userId, chatId);
         break;
+      case "cases":
+        screen = await renderCases(repo, userId, chatId);
+        break;
       case "rod": {
         const rod = getRod(parsed.action.rodId);
         if (rod === undefined) {
@@ -258,7 +281,7 @@ export function registerUpgradeCommands(bot: Bot<BotContext>, cfg: Config, repo:
       }
       case "buy": {
         const rod = getRod(parsed.action.rodId);
-        if (rod === undefined || rod.id === "basic") {
+        if (rod === undefined || rod.id === "basic" || rod.acquisition !== "shop") {
           await answerStale(ctx, userId, chatId, "invalid rod purchase");
           return;
         }
@@ -293,6 +316,24 @@ export function registerUpgradeCommands(bot: Bot<BotContext>, cfg: Config, repo:
         } else {
           screen = await renderRodDetail(repo, userId, chatId, rod, "Эта удочка не куплена.");
         }
+        break;
+      }
+      case "casebuy": {
+        const case_ = getRodCase(parsed.action.caseId);
+        if (case_ === undefined) { await answerStale(ctx, userId, chatId, "unknown rod case purchase"); return; }
+        const result = await repo.buyRodCase(userId, chatId, case_.id, case_.price);
+        screen = await renderCases(repo, userId, chatId);
+        answerText = result.status === "purchased" ? "Кейс куплен." : `Не хватает средств: нужно ${money(result.required)}, доступно ${money(result.available)}.`;
+        break;
+      }
+      case "caseopen": {
+        const case_ = getRodCase(parsed.action.caseId);
+        if (case_ === undefined) { await answerStale(ctx, userId, chatId, "unknown rod case opening"); return; }
+        const rod = rollCaseRod(case_.id, Math.random);
+        const result = await repo.openRodCase(userId, chatId, case_.id, rod.id, rod.duplicateCompensation);
+        if (result.status === "no_case") { screen = await renderCases(repo, userId, chatId); answerText = "Кейс уже открыт или недоступен."; break; }
+        log.info({ userId, chatId, caseId: case_.id, rodId: rod.id, rarity: rod.rarity, duplicate: result.duplicate, compensation: result.compensation }, "Rod case opened");
+        screen = { text: rodCaseResultCard(case_, rod, result.duplicate, result.compensation), keyboard: new InlineKeyboard().text("🎣 К удочкам", buildCallbackData(userId, { kind: "rods" })).row().text("📦 К кейсам", buildCallbackData(userId, { kind: "cases" })) };
         break;
       }
     }

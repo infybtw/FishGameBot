@@ -1,7 +1,8 @@
 import type { InventoryFishRow, InventoryPage, RarityInventorySummary } from "../../db/index.ts";
 import { escapeHtml, round2 } from "../../lib/format.ts";
 import { modifierLabel } from "../fishing/modifiers.ts";
-import { getRod, type RodDefinition } from "./rods.ts";
+import { getRod, rodSpecialEffectLabel, type RodDefinition } from "./rods.ts";
+import type { RodCaseDefinition } from "../rod-cases/catalog.ts";
 
 export function money(value: number): string {
   return `${round2(value)} ₽`;
@@ -74,7 +75,7 @@ export function raritySaleConfirmation(point: number, count: number, total: numb
 }
 
 export function rodsCard(rods: readonly { rod: RodDefinition; state: string }[]): string {
-  return ["🎣 <b>Удочки</b>", "", ...rods.map(({ rod, state }) => `${escapeHtml(rod.name)} — <b>${state}</b>`)].join("\n");
+  return ["🎣 <b>Удочки</b>", "", ...rods.map(({ rod, state }) => `${escapeHtml(rod.name)} · ${rod.rarity} — <b>${state}</b>`)].join("\n");
 }
 
 export function rodDetailCard(
@@ -84,6 +85,15 @@ export function rodDetailCard(
   inventory: readonly RarityInventorySummary[],
   unavailablePoints: ReadonlySet<number>,
 ): string {
+  if (rod.acquisition === "case") return (
+    `🎣 <b>${escapeHtml(rod.name)}</b>\n\n` +
+    `<b>Статус:</b> ${state}\n<b>Редкость:</b> ${rod.rarity}\n` +
+    `<b>Источник:</b> Можно получить: только из кейсов\n` +
+    `<b>Бонус к поимке:</b> +${rod.catchBonusPoints} п.п.\n` +
+    `<b>Бонус редкости:</b> +${round2(rod.rarityStepBonus * 100)}% × (редкость − 1)\n\n` +
+    `<b>Особый эффект:</b> ${rodSpecialEffectLabel(rod.specialEffect)}\n\n` +
+    `<b>Ваш баланс:</b> ${money(balance)}`
+  );
   const byPoint = new Map(inventory.map((summary) => [summary.point, summary]));
   const prerequisite = rod.prerequisite === null ? "нет" : escapeHtml(getRod(rod.prerequisite)!.name);
   const recipe =
@@ -98,7 +108,7 @@ export function rodDetailCard(
           .join("\n");
   return (
     `🎣 <b>${escapeHtml(rod.name)}</b>\n\n` +
-    `<b>Статус:</b> ${state}\n` +
+    `<b>Редкость:</b> ${rod.rarity}\n<b>Статус:</b> ${state}\n` +
     `<b>Предыдущая удочка:</b> ${prerequisite}\n` +
     `<b>Стоимость:</b> ${money(rod.price)}\n` +
     `<b>Рецепт:</b>\n${recipe}\n` +
@@ -106,4 +116,17 @@ export function rodDetailCard(
     `<b>Бонус редкости:</b> +${round2(rod.rarityStepBonus * 100)}% × (редкость − 1)\n\n` +
     `<b>Ваш баланс:</b> ${money(balance)}`
   );
+}
+
+export function rodCasesCard(balance: number, cases: readonly { case: RodCaseDefinition; quantity: number }[]): string {
+  return ["📦 <b>Кейсы с удочками</b>", `<b>Баланс:</b> ${money(balance)}`, "", ...cases.flatMap(({ case: case_, quantity }) => [
+    `<b>${case_.name}</b> · ${money(case_.price)} · в наличии: ${quantity}`,
+    `${Object.entries(case_.weights).filter(([, weight]) => weight > 0).map(([rarity, weight]) => `${rarity} ${weight}%`).join(", ")}`,
+  ]), "", "Внутри каждого тира удочка выбирается равновероятно."].join("\n");
+}
+
+export function rodCaseResultCard(case_: RodCaseDefinition, rod: RodDefinition, duplicate: boolean, compensation: number): string {
+  const result = duplicate ? `Удочка уже есть. Компенсация: <b>${money(compensation)}</b>` : "Удочка добавлена в вашу коллекцию.";
+  const effect = rod.acquisition === "case" ? `\nОсобый эффект: ${rodSpecialEffectLabel(rod.specialEffect)}` : "";
+  return `📦 <b>${case_.name}</b>\n\nВыпала: <b>${escapeHtml(rod.name)}</b>\nРедкость: ${rod.rarity}\nБонус к поимке: +${rod.catchBonusPoints} п.п.\nБонус редкости: +${round2(rod.rarityStepBonus * 100)}% за шаг${effect}\n\n${result}`;
 }

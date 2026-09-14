@@ -16,6 +16,8 @@ export type CaughtFish = {
 
 /** Event price adjustment: multiplies the price of fish in the point range. */
 export type PriceModifier = { multiplier: number; minPoint: number; maxPoint: number };
+/** A post-success chance to select one exact rarity when it exists in the catalog. */
+export type RarityTarget = { point: number; chance: number };
 
 export function didCatch(successChance: number, random: () => number = Math.random): boolean {
   return random() * 100 < successChance;
@@ -26,7 +28,11 @@ export function rollPoint(
   rarityStepBonus = 0,
   random: () => number = Math.random,
   weights: Readonly<Record<number, number>> = RARITY_WEIGHTS,
+  target?: RarityTarget,
 ): number {
+  if (target !== undefined && catalog[target.point - 1]?.length !== undefined && catalog[target.point - 1]!.length > 0 && random() * 100 < target.chance) {
+    return target.point;
+  }
   const entries: Array<{ point: number; weight: number }> = [];
   for (let point = 1; point <= catalog.length; point++) {
     const group = catalog[point - 1];
@@ -128,9 +134,10 @@ export function tryCatch(
   modifierDropChance = 0,
   rarityWeights: Readonly<Record<number, number>> = RARITY_WEIGHTS,
   priceModifier?: PriceModifier,
+  rarityTarget?: RarityTarget,
 ): CaughtFish | null {
   if (!didCatch(successChance)) return null;
-  return generateCatch(catalog, rollPoint(catalog, rarityStepBonus, Math.random, rarityWeights), catcherFirstName, modifierDropChance, priceModifier);
+  return generateCatch(catalog, rollPoint(catalog, rarityStepBonus, Math.random, rarityWeights, rarityTarget), catcherFirstName, modifierDropChance, priceModifier);
 }
 
 /**
@@ -143,10 +150,11 @@ export function boostedCatch(
   rarityStepBonus = 0,
   modifierDropChance = 0,
   priceModifier?: PriceModifier,
+  rarityTarget?: RarityTarget,
 ): CaughtFish {
   return generateCatch(
     catalog,
-    rollPoint(catalog, rarityStepBonus, Math.random, CHANCE_UP_RARITY_WEIGHTS),
+    rollPoint(catalog, rarityStepBonus, Math.random, CHANCE_UP_RARITY_WEIGHTS, rarityTarget),
     catcherFirstName,
     modifierDropChance,
     priceModifier,

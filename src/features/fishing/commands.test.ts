@@ -225,6 +225,12 @@ function createFakeRepo(): FakeRepo {
       if (disabled) disabledEventIds.add(eventId);
       else disabledEventIds.delete(eventId);
     },
+    async getCommandOutputMode() {
+      return "normal";
+    },
+    async setCommandOutputMode() {
+      return undefined;
+    },
     async grantChanceUp(userId, chatId) {
       calls.push("grantChanceUp");
       chanceUps.add(key(userId, chatId));
@@ -276,6 +282,15 @@ function createFakeRepo(): FakeRepo {
     },
     async equipRod() {
       return unexpected("equipRod");
+    },
+    async listRodCaseBalances() {
+      return unexpected("listRodCaseBalances");
+    },
+    async buyRodCase() {
+      return unexpected("buyRodCase");
+    },
+    async openRodCase() {
+      return unexpected("openRodCase");
     },
     async listTemplates() {
       return unexpected("listTemplates");

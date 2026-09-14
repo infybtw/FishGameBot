@@ -3,13 +3,15 @@ import { createConversation } from "@grammyjs/conversations";
 import { InlineKeyboard, InputFile, type Bot } from "grammy";
 import type { BotContext, CatalogAccess, FishConversation } from "../../bot.ts";
 import type { Config } from "../../config.ts";
-import type { FishTemplateInsert, FishTemplateRow, Repo } from "../../db/index.ts";
+import type { CommandOutputMode, FishTemplateInsert, FishTemplateRow, Repo } from "../../db/index.ts";
 import { isAdmin, isGroup } from "../../guards.ts";
 import { escapeHtml } from "../../lib/format.ts";
 import { log } from "../../logger.ts";
 import { inventoryCard, inventoryFishCard, profileCard } from "../upgrades/messages.ts";
-import { getRod, RODS } from "../upgrades/rods.ts";
+import { getRod, rodSpecialEffectLabel, RODS } from "../upgrades/rods.ts";
+import { getRodCase } from "../rod-cases/catalog.ts";
 import { TIME_EVENTS } from "../fishing/time-events.ts";
+import { COMMAND_OUTPUT_SETTINGS, isCommandOutputSetting, type CommandOutputSetting } from "../command-output-settings.ts";
 
 const ADD_INVITE =
   "Введите данные для добавления новой рыбы в формате:\nfish_name/fish_rarity/fish_rarity_point";
@@ -74,19 +76,37 @@ function parseClearLimit(raw: string): number | null | undefined {
   return Number.isSafeInteger(limit) && limit > 0 ? limit : null;
 }
 
-type ApanelAction = { kind: "home" | "events" } | { kind: "toggle"; eventId: string };
+const COMMAND_OUTPUT_MODES: readonly CommandOutputMode[] = ["normal", "personal", "off"];
+
+type ApanelAction =
+  | { kind: "home" | "events" | "commands" }
+  | { kind: "toggle"; eventId: string }
+  | { kind: "command"; command: CommandOutputSetting }
+  | { kind: "commandMode"; command: CommandOutputSetting; mode: CommandOutputMode };
 
 function buildApanelCallback(action: ApanelAction): string {
-  const payload = action.kind === "toggle" ? `apn:toggle:${action.eventId}` : `apn:${action.kind}`;
+  const payload =
+    action.kind === "toggle" ? `apn:toggle:${action.eventId}` :
+    action.kind === "command" ? `apn:cmd:${action.command}` :
+    action.kind === "commandMode" ? `apn:cmdmode:${action.command}:${action.mode}` :
+    `apn:${action.kind}`;
   if (Buffer.byteLength(payload, "utf8") > 64) throw new Error("Telegram callback_data exceeds 64 bytes");
   return payload;
 }
 
 function parseApanelCallback(payload: string): ApanelAction | null {
-  if (payload === "apn:home" || payload === "apn:events") return { kind: payload.slice(4) as "home" | "events" };
+  if (payload === "apn:home" || payload === "apn:events" || payload === "apn:commands") {
+    return { kind: payload.slice(4) as "home" | "events" | "commands" };
+  }
   const match = /^apn:toggle:([a-z_]+)$/.exec(payload);
   const eventId = match?.[1];
-  return eventId !== undefined && TIME_EVENTS.some((event) => event.id === eventId) ? { kind: "toggle", eventId } : null;
+  if (eventId !== undefined && TIME_EVENTS.some((event) => event.id === eventId)) return { kind: "toggle", eventId };
+  const commandMatch = /^apn:cmd:([a-z_]+)$/.exec(payload);
+  if (commandMatch !== null && isCommandOutputSetting(commandMatch[1]!)) return { kind: "command", command: commandMatch[1] };
+  const modeMatch = /^apn:cmdmode:([a-z_]+):(normal|personal|off)$/.exec(payload);
+  if (modeMatch === null || !isCommandOutputSetting(modeMatch[1]!)) return null;
+  const mode = modeMatch[2] as CommandOutputMode;
+  return COMMAND_OUTPUT_MODES.includes(mode) ? { kind: "commandMode", command: modeMatch[1], mode } : null;
 }
 
 type ApanelScreen = { text: string; keyboard: InlineKeyboard };
@@ -94,7 +114,10 @@ type ApanelScreen = { text: string; keyboard: InlineKeyboard };
 function renderApanelHome(): ApanelScreen {
   return {
     text: "<b>Панель администратора</b>\n\nВыберите раздел настроек.",
-    keyboard: new InlineKeyboard().text("События", buildApanelCallback({ kind: "events" })),
+    keyboard: new InlineKeyboard()
+      .text("События", buildApanelCallback({ kind: "events" }))
+      .row()
+      .text("Команды", buildApanelCallback({ kind: "commands" })),
   };
 }
 
@@ -109,6 +132,27 @@ function renderApanelEvents(disabledEventIds: readonly string[]): ApanelScreen {
   }
   keyboard.text("Назад", buildApanelCallback({ kind: "home" }));
   return { text: lines.join("\n"), keyboard };
+}
+
+function renderApanelCommands(): ApanelScreen {
+  const keyboard = new InlineKeyboard();
+  for (const entry of COMMAND_OUTPUT_SETTINGS) keyboard.text(entry.label, buildApanelCallback({ kind: "command", command: entry.command })).row();
+  keyboard.text("Назад", buildApanelCallback({ kind: "home" }));
+  return { text: "<b>Настройки: команды</b>\n\nВыберите команду для настройки её ответов.", keyboard };
+}
+
+function renderApanelCommand(command: CommandOutputSetting, mode: CommandOutputMode): ApanelScreen {
+  const entry = COMMAND_OUTPUT_SETTINGS.find((candidate) => candidate.command === command)!;
+  const labels: Record<CommandOutputMode, string> = { normal: "Обычные", personal: "Персональные", off: "Off" };
+  const keyboard = new InlineKeyboard();
+  for (const candidate of COMMAND_OUTPUT_MODES) {
+    keyboard.text(`${mode === candidate ? "✅ " : ""}${labels[candidate]}`, buildApanelCallback({ kind: "commandMode", command, mode: candidate }));
+  }
+  keyboard.row().text("Назад", buildApanelCallback({ kind: "commands" }));
+  return {
+    text: `<b>Команда: /${command}</b>\n${entry.label}\n\nОбычные ответы видны в чате, персональные - только вызвавшему команду игроку. Off отключает ответы команды.`,
+    keyboard,
+  };
 }
 
 type AProfileAction =
@@ -153,15 +197,16 @@ function parseAprofileCallback(payload: string): { targetUserId: number; action:
 type AProfileScreen = { text: string; keyboard: InlineKeyboard };
 
 async function renderAprofileHome(repo: Repo, cfg: Config, userId: number, chatId: number): Promise<AProfileScreen> {
-  const [fisher, inventory, equippedRodId] = await Promise.all([
+  const [fisher, inventory, equippedRodId, caseBalances] = await Promise.all([
     repo.getFisher(userId, chatId),
     repo.getInventoryPage(userId, chatId, 1, 5),
     repo.getEquippedRodId(userId, chatId),
+    repo.listRodCaseBalances(userId, chatId),
   ]);
   if (fisher === null) return { text: APROFILE_EMPTY, keyboard: new InlineKeyboard() };
   const rod = getRod(equippedRodId ?? "basic") ?? getRod("basic")!;
   return {
-    text: `<b>Админ-профиль: ${escapeHtml(fisher.firstName)}</b>\n\n${profileCard(fisher.balance, rod, cfg.catchSuccessChance, inventory.totalCount, inventory.totalValue)}`,
+    text: `<b>Админ-профиль: ${escapeHtml(fisher.firstName)}</b>\n\n${profileCard(fisher.balance, rod, cfg.catchSuccessChance, inventory.totalCount, inventory.totalValue)}\n\n<b>Кейсы:</b> ${caseBalances.length === 0 ? "нет" : caseBalances.map((entry) => `${getRodCase(entry.caseId)?.name ?? entry.caseId}: ${entry.quantity}`).join(", ")}`,
     keyboard: new InlineKeyboard()
       .text("Рыба", buildAprofileCallback(userId, { kind: "fish", page: 1 }))
       .text("Удочки", buildAprofileCallback(userId, { kind: "rods" })),
@@ -215,8 +260,11 @@ async function renderAprofileRodDetail(repo: Repo, userId: number, chatId: numbe
     `🎣 <b>${escapeHtml(rod.name)}</b>`,
     "",
     `<b>Статус:</b> ${owned ? "✅ Выдана" : "❌ Не выдана"}${equipped === rod.id ? " · экипирована" : ""}`,
+    `<b>Редкость:</b> ${rod.rarity}`,
+    `<b>Источник:</b> ${rod.acquisition === "case" ? "только из кейсов" : "магазин"}`,
     `<b>Бонус к поимке:</b> +${rod.catchBonusPoints} п.п.`,
     `<b>Бонус редкости:</b> +${rod.rarityStepBonus * 100}% за шаг`,
+    ...(rod.acquisition === "case" ? [`<b>Особый эффект:</b> ${rodSpecialEffectLabel(rod.specialEffect)}`] : []),
   ];
   const keyboard = new InlineKeyboard();
   if (rod.id !== "basic") keyboard.text(owned ? "Удалить удочку" : "Выдать удочку", buildAprofileCallback(userId, owned ? { kind: "removeRod", rodId } : { kind: "grantRod", rodId })).row();
@@ -445,6 +493,25 @@ export function registerAdminCommands(
       const screen = renderApanelHome();
       await ctx.editEphemeralMessageText(screen.text, { reply_markup: screen.keyboard });
       await ctx.answerCallbackQuery();
+      return;
+    }
+    if (action.kind === "commands") {
+      const screen = renderApanelCommands();
+      await ctx.editEphemeralMessageText(screen.text, { reply_markup: screen.keyboard });
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (action.kind === "command" || action.kind === "commandMode") {
+      const command = action.command;
+      if (action.kind === "commandMode") {
+        await repo.setCommandOutputMode(command, action.mode);
+        log.info({ command, mode: action.mode, chatId: message.chat.id }, "Command output setting changed by admin");
+        await ctx.answerCallbackQuery({ text: "Настройка команды сохранена." });
+      } else {
+        await ctx.answerCallbackQuery();
+      }
+      const screen = renderApanelCommand(command, await repo.getCommandOutputMode(command));
+      await ctx.editEphemeralMessageText(screen.text, { reply_markup: screen.keyboard });
       return;
     }
     const disabled = new Set(await repo.listDisabledTimeEventIds());

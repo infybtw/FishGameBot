@@ -14,6 +14,9 @@ const actions: UpgradeAction[] = [
   { kind: "rod", rodId: "poseidon" },
   { kind: "buy", rodId: "carbon" },
   { kind: "equip", rodId: "titanium" },
+  { kind: "cases" },
+  { kind: "casebuy", caseId: "tackle_case" },
+  { kind: "caseopen", caseId: "relic_case" },
 ];
 
 describe("upgrade callback data", () => {
@@ -40,6 +43,7 @@ describe("upgrade callback data", () => {
       "upg:1:sell:9007199254740992",
       "upg:1:sellr:1:0",
       "upg:1:rod:unknown",
+      "upg:1:caseopen:unknown",
       "upg:1:home:extra",
       "not-upg:1:home",
     ]) {
