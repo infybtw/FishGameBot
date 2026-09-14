@@ -9,15 +9,15 @@ test("case weights total exactly 100 percent", () => {
 describe("rollCaseRod", () => {
   test("uses rarity boundaries and then chooses within the tier", () => {
     expect(rollCaseRod("tackle_case", () => 0).rarity).toBe("Обычная");
-    expect(rollCaseRod("tackle_case", () => 0.5).rarity).toBe("Необычная");
-    expect(rollCaseRod("tackle_case", () => 0.8).rarity).toBe("Редкая");
-    expect(rollCaseRod("tackle_case", () => 0.989).rarity).toBe("Эпическая");
-    expect(rollCaseRod("tackle_case", () => 0.998).rarity).toBe("Легендарная");
+    expect(rollCaseRod("tackle_case", () => 0.75).rarity).toBe("Необычная");
+    expect(rollCaseRod("tackle_case", () => 0.95).rarity).toBe("Редкая");
+    expect(rollCaseRod("tackle_case", () => 0.99).rarity).toBe("Эпическая");
+    expect(rollCaseRod("tackle_case", () => 0.9985).rarity).toBe("Легендарная");
     expect(rollCaseRod("tackle_case", () => 0.9999).rarity).toBe("Мифическая");
   });
 
   test("returns only a case rod from the rolled tier and rejects invalid input", () => {
-    const rod = rollCaseRod("deepwater_case", (() => { let call = 0; return () => ++call === 1 ? 0.35 : 0; })());
+    const rod = rollCaseRod("deepwater_case", (() => { let call = 0; return () => ++call === 1 ? 0.65 : 0; })());
     expect(rod.rarity).toBe("Редкая");
     expect(CASE_RODS).toContain(rod);
     expect(() => rollCaseRod("unknown" as never, () => 0)).toThrow("Unknown rod case");
