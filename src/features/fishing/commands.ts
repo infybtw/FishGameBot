@@ -269,8 +269,8 @@ export function registerGroupCommands(
   });
 
   bot.command("cd", async (ctx) => {
-    if (!isAdminInGroup(ctx, cfg)) {
-      logIgnored(ctx, "not a group chat or sender is not the admin");
+    if (!isGroup(ctx)) {
+      logIgnored(ctx, "not a group chat");
       return;
     }
     const rows = await repo.listCatchTimes(ctx.chat.id, cfg.catchDelaySeconds);
