@@ -5,17 +5,20 @@ const WIDTH = 1080;
 const HEADER_HEIGHT = 238;
 const ROW_HEIGHT = 98;
 const FOOTER_HEIGHT = 126;
+const NAME_X = 142;
+const VALUE_X = 1010;
 
 function escapeXml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&apos;");
 }
 
 function truncate(value: string, maxLength: number): string {
-  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
+  const characters = Array.from(value);
+  return characters.length <= maxLength ? value : `${characters.slice(0, maxLength - 1).join("")}…`;
 }
 
 function formatValue(value: number): string {
-  return `${round2(value).toLocaleString("ru-RU")} руб.`;
+  return `${round2(value).toLocaleString("ru-RU").replace(/\u00a0/g, "\u2009")} руб.`;
 }
 
 function rankColor(rank: number): string {
@@ -27,7 +30,6 @@ function rankColor(rank: number): string {
 
 export function topCardSvg(rows: readonly TopFisherRow[]): string {
   const height = HEADER_HEIGHT + Math.max(rows.length, 1) * ROW_HEIGHT + FOOTER_HEIGHT;
-  const leaderTotal = rows[0]?.total ?? 0;
   const renderedRows = rows.length === 0
     ? `<text x="64" y="${HEADER_HEIGHT + 58}" class="empty">Топ инвентарей пока пустует</text>`
     : rows
@@ -35,12 +37,10 @@ export function topCardSvg(rows: readonly TopFisherRow[]): string {
           const rank = index + 1;
           const y = HEADER_HEIGHT + index * ROW_HEIGHT;
           const color = rankColor(rank);
-          const ratio = leaderTotal > 0 ? Math.max(0.08, row.total / leaderTotal) : 0.08;
-          const barWidth = Math.round(330 * ratio);
           const rankLabel = rank <= 3
             ? `<circle cx="91" cy="${y + 43}" r="25" fill="${color}"/><text x="91" y="${y + 52}" text-anchor="middle" class="rankTop">${rank}</text>`
             : `<text x="91" y="${y + 52}" text-anchor="middle" class="rank">${rank}</text>`;
-          return `<rect x="50" y="${y + 8}" width="980" height="72" rx="22" fill="#12344a"/>${rankLabel}<text x="142" y="${y + 53}" class="name">${escapeXml(truncate(row.firstName, 20))}</text><rect x="482" y="${y + 29}" width="330" height="18" rx="9" fill="#0b2538"/><rect x="482" y="${y + 29}" width="${barWidth}" height="18" rx="9" fill="${color}"/><text x="852" y="${y + 53}" class="value">${escapeXml(formatValue(row.total))}</text>`;
+          return `<rect x="50" y="${y + 8}" width="980" height="72" rx="22" fill="#12344a"/>${rankLabel}<text x="${NAME_X}" y="${y + 53}" clip-path="url(#nameColumn)" class="name">${escapeXml(truncate(row.firstName, 24))}</text><text x="${VALUE_X}" y="${y + 53}" text-anchor="end" class="value">${escapeXml(formatValue(row.total))}</text>`;
         })
         .join("");
 
@@ -52,6 +52,7 @@ export function topCardSvg(rows: readonly TopFisherRow[]): string {
     .name, .value { fill: #f2feff; font-size: 26px; font-weight: 700; }
     .rankTop { fill: #092237; font-size: 25px; font-weight: 800; }
   </style>
+  <defs><clipPath id="nameColumn"><rect x="${NAME_X}" y="${HEADER_HEIGHT + 8}" width="650" height="${Math.max(rows.length, 1) * ROW_HEIGHT - 26}"/></clipPath></defs>
   <rect width="100%" height="100%" fill="#082235"/>
   <path d="M0 0H1080V154C930 192 806 108 628 148C443 190 276 226 0 169Z" fill="#0d3048"/>
   <circle cx="971" cy="74" r="92" fill="#16455d" opacity=".7"/>
