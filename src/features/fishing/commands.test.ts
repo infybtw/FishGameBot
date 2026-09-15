@@ -589,7 +589,6 @@ test("admin commands from non-owners or in private chats are silently ignored", 
 
   await bot.handleUpdate(commandUpdate({ updateId: 6, text: "/cdr", from: PLAYER, replyTo: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 214, text: "/cda", from: PLAYER, replyTo: PLAYER }));
-  await bot.handleUpdate(commandUpdate({ updateId: 7, text: "/cd", from: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 8, text: "/fakefish", from: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 9, text: "/chanceup", from: PLAYER, replyTo: PLAYER }));
   await bot.handleUpdate(commandUpdate({ updateId: 10, text: "/cdr", from: ADMIN, chat: PRIVATE_CHAT, replyTo: PLAYER }));
@@ -709,6 +708,14 @@ test("/cd reports absence when no tracked cooldowns exist", async () => {
   const { bot, sentTexts } = createTestBot();
 
   await bot.handleUpdate(commandUpdate({ updateId: 15, text: "/cd", from: ADMIN }));
+
+  expect(sentTexts).toEqual(["Кулдауны пока отсутствуют"]);
+});
+
+test("/cd is available to every group member", async () => {
+  const { bot, sentTexts } = createTestBot();
+
+  await bot.handleUpdate(commandUpdate({ updateId: 16, text: "/cd", from: PLAYER }));
 
   expect(sentTexts).toEqual(["Кулдауны пока отсутствуют"]);
 });
