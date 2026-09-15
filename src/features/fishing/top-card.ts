@@ -25,7 +25,7 @@ function rankColor(rank: number): string {
   return "#36c5c9";
 }
 
-function topCardSvg(rows: readonly TopFisherRow[]): string {
+export function topCardSvg(rows: readonly TopFisherRow[]): string {
   const height = HEADER_HEIGHT + Math.max(rows.length, 1) * ROW_HEIGHT + FOOTER_HEIGHT;
   const leaderTotal = rows[0]?.total ?? 0;
   const renderedRows = rows.length === 0

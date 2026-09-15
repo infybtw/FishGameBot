@@ -413,7 +413,7 @@ function createTestBot(cfg: Config = CFG, repo: FakeRepo = createFakeRepo()): {
       },
     } as never;
   });
-  registerGroupCommands(bot, cfg, repo);
+  registerGroupCommands(bot, cfg, repo, async () => new Uint8Array([137, 80, 78, 71]));
   return { bot, sentTexts, sentPhotos, repo };
 }
 

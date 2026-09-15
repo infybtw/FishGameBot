@@ -1,18 +1,20 @@
 import { expect, test } from "bun:test";
-import { createTopCard } from "./top-card.ts";
+import { topCardSvg } from "./top-card.ts";
 
-test("creates a PNG card for the inventory leaderboard", async () => {
-  const card = await createTopCard([
+test("creates SVG markup for the inventory leaderboard", () => {
+  const card = topCardSvg([
     { firstName: "Анна<script>", total: 1_000.5 },
     { firstName: "Боб", total: 250 },
   ]);
 
-  expect([...card.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
-  expect(card.byteLength).toBeGreaterThan(1_000);
+  expect(card).toContain("ТОП РЫБАКОВ");
+  expect(card).toContain("@fishcatcherrbot");
+  expect(card).toContain("Анна&lt;script&gt;");
+  expect(card).toContain("1 000,5 руб.");
 });
 
-test("creates a PNG empty-state card", async () => {
-  const card = await createTopCard([]);
+test("creates an empty-state SVG card", () => {
+  const card = topCardSvg([]);
 
-  expect([...card.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  expect(card).toContain("Топ инвентарей пока пустует");
 });

@@ -99,7 +99,12 @@ async function applyCurse(
   }
 }
 
-export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: Repo): void {
+export function registerGroupCommands(
+  bot: Bot<BotContext>,
+  cfg: Config,
+  repo: Repo,
+  renderTopCard: (rows: Awaited<ReturnType<Repo["getTopFishers"]>>) => Promise<Uint8Array> = createTopCard,
+): void {
   bot.command("fish", async (ctx) => {
     if (!isGroup(ctx) || ctx.from === undefined) {
       logIgnored(ctx, "not a group chat or sender unknown");
@@ -401,7 +406,7 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     }
     const rows = await repo.getTopFishers(ctx.chat.id, 10);
     log.debug({ chatId: ctx.chat.id, rows: rows.length }, "Inventory fishtop calculated");
-    const card = await createTopCard(rows);
+    const card = await renderTopCard(rows);
     await ctx.replyWithPhoto(new InputFile(card, "fishtop.png"));
   });
 
