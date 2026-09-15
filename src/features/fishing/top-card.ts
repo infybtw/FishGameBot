@@ -46,7 +46,7 @@ export function topCardSvg(rows: readonly TopFisherRow[]): string {
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}">
   <style>
-    text { font-family: DejaVu Sans, sans-serif; dominant-baseline: alphabetic; }
+    text { font-family: Noto Sans, Noto Color Emoji, sans-serif; dominant-baseline: alphabetic; }
     .title { fill: #e8fbff; font-size: 42px; font-weight: 800; letter-spacing: 1px; }
     .subtitle, .rank, .empty, .footer { fill: #95bdc8; font-size: 22px; }
     .name, .value { fill: #f2feff; font-size: 26px; font-weight: 700; }
