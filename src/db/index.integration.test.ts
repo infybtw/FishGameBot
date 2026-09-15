@@ -94,6 +94,23 @@ describe.skipIf(databaseUrl === undefined)("Repo inventory economy integration",
     expect((await repo.getInventoryPage(1, -100, 1, 5)).fishes.map((fish) => fish.price)).toEqual([999]);
   });
 
+  test("ranks fishers by the value of their available inventory only", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(1, -100, "Available");
+    await repo.ensureFisher(2, -100, "Sold");
+    await repo.ensureFisher(3, -100, "Empty");
+    await repo.ensureFisher(4, -101, "Other chat");
+    await createAvailableCatch(1, -100, 1, 100);
+    await createAvailableCatch(1, -100, 2, 250);
+    await createAvailableCatch(2, -100, 1, 1_000);
+    await createAvailableCatch(4, -101, 1, 2_000);
+    const soldFish = (await repo.getInventoryPage(2, -100, 1, 1)).fishes[0]!;
+    await repo.sellFish(2, -100, soldFish.id);
+
+    expect(await repo.getTopFishers(-100)).toEqual([{ firstName: "Available", total: 350 }]);
+  });
+
   test("buys and opens cases per user and chat, compensating duplicate rods", async () => {
     await migrateSchema(sql!);
     const repo = createRepo(sql!);

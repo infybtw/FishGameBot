@@ -98,9 +98,9 @@ export function lastCatchMissing(firstName: string): string {
 }
 
 export function topFishers(rows: TopFisherRow[]): string {
-  if (rows.length === 0) return "Топ рыбаков пока пустует";
+  if (rows.length === 0) return "Топ инвентарей пока пустует";
   return (
-    `🐟Топ рыбаков:🐟\n` +
+    `🐟Топ по стоимости инвентаря:🐟\n` +
     rows.map((row, i) => `${i + 1}| ${escapeHtml(row.firstName)} - ${round2(row.total)}руб\n`).join("")
   );
 }
