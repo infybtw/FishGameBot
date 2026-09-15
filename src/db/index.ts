@@ -837,10 +837,10 @@ export function createRepo(sql: SQL): Repo {
       });
     },
     async getTopFishers(chatId, limit = 10): Promise<TopFisherRow[]> {
-      const rows = (await sql`SELECT f.user_first_name, COALESCE(SUM(c.fish_price), 0) AS total
+      const rows = (await sql`SELECT f.user_first_name, SUM(c.fish_price) AS total
         FROM fishers f
-        LEFT JOIN caught_fishes c ON c.user_id = f.user_id AND c.chat_id = f.chat_id
-        WHERE f.chat_id = ${chatId}
+        JOIN caught_fishes c ON c.user_id = f.user_id AND c.chat_id = f.chat_id
+        WHERE f.chat_id = ${chatId} AND c.inventory_state = 'available'
         GROUP BY f.user_id, f.user_first_name
         ORDER BY total DESC
         LIMIT ${limit}`) as Array<Record<string, unknown>>;

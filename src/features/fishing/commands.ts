@@ -400,7 +400,7 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
       return;
     }
     const rows = await repo.getTopFishers(ctx.chat.id, 10);
-    log.debug({ chatId: ctx.chat.id, rows: rows.length }, "Fishtop calculated");
+    log.debug({ chatId: ctx.chat.id, rows: rows.length }, "Inventory fishtop calculated");
     await ctx.reply(topFishers(rows));
   });
 

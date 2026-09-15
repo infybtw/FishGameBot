@@ -464,6 +464,31 @@ test("/fishes is ignored in private chats", async () => {
   expect(sentTexts).toEqual([]);
 });
 
+test("/fishtop shows the total value of available inventory in a group", async () => {
+  const { bot, sentTexts, repo } = createTestBot();
+  const getTopFishers = spyOn(repo, "getTopFishers").mockResolvedValue([
+    { firstName: "Анна<script>", total: 1_000.5 },
+    { firstName: "Боб", total: 250 },
+  ]);
+
+  await bot.handleUpdate(commandUpdate({ updateId: 16, text: "/fishtop" }));
+
+  expect(getTopFishers).toHaveBeenCalledWith(-100, 10);
+  expect(sentTexts).toEqual([
+    "🐟Топ по стоимости инвентаря:🐟\n1| Анна&lt;script&gt; - 1000.5руб\n2| Боб - 250руб\n",
+  ]);
+});
+
+test("/fishtop is ignored in private chats", async () => {
+  const { bot, sentTexts, repo } = createTestBot();
+  const getTopFishers = spyOn(repo, "getTopFishers");
+
+  await bot.handleUpdate(commandUpdate({ updateId: 17, text: "/fishtop", chat: PRIVATE_CHAT }));
+
+  expect(getTopFishers).not.toHaveBeenCalled();
+  expect(sentTexts).toEqual([]);
+});
+
 test("/cdr removes only the replied player's cooldown in the current chat", async () => {
   const { bot, sentTexts, repo } = createTestBot();
   repo.catchTimes.set("9:-100", cd(1_000));
