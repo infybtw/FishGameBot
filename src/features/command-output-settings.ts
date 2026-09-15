@@ -16,7 +16,6 @@ export type CommandOutputSetting = (typeof COMMAND_OUTPUT_SETTINGS)[number]["com
 const FIXED_COMMAND_OUTPUT_MODES = {
   profile: "personal",
   stats: "normal",
-  trade: "normal",
 } as const;
 
 export function isCommandOutputSetting(command: string): command is CommandOutputSetting {
