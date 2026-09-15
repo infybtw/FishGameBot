@@ -61,6 +61,8 @@ async function main(): Promise<void> {
   const stopNetNotifier = startNetNotifier(repo, bot.api);
   const stopTimeEventNotifier = startTimeEventNotifier(repo, bot.api, cfg.eventTimeZone);
 
+  // This bot uses polling, so discard commands queued while it was offline.
+  await bot.api.deleteWebhook({ drop_pending_updates: true });
   await bot.start({ onStart: () => log.info("Bot started") });
   stopTimeEventNotifier();
   stopNetNotifier();
