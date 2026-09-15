@@ -1,4 +1,4 @@
-import { type Bot, type Context } from "grammy";
+import { InputFile, type Bot, type Context } from "grammy";
 import type { User } from "grammy/types";
 import type { BotContext } from "../../bot.ts";
 import type { Config } from "../../config.ts";
@@ -38,8 +38,8 @@ import {
   secondCastCurse,
   statsEmpty,
   statsMsg,
-  topFishers,
 } from "./messages.ts";
+import { createTopCard } from "./top-card.ts";
 import {
   eventCooldownSeconds,
   getActiveTimeEvent,
@@ -401,7 +401,8 @@ export function registerGroupCommands(bot: Bot<BotContext>, cfg: Config, repo: R
     }
     const rows = await repo.getTopFishers(ctx.chat.id, 10);
     log.debug({ chatId: ctx.chat.id, rows: rows.length }, "Inventory fishtop calculated");
-    await ctx.reply(topFishers(rows));
+    const card = await createTopCard(rows);
+    await ctx.replyWithPhoto(new InputFile(card, "fishtop.png"));
   });
 
   bot.command("stats", async (ctx) => {

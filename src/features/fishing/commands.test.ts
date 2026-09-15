@@ -1,5 +1,5 @@
 import { afterEach, expect, jest, spyOn, test } from "bun:test";
-import { Bot } from "grammy";
+import { Bot, InputFile } from "grammy";
 import type { Chat, Update, User } from "grammy/types";
 import type { BotContext } from "../../bot.ts";
 import type { Config } from "../../config.ts";
@@ -371,6 +371,7 @@ function createFakeRepo(): FakeRepo {
 function createTestBot(cfg: Config = CFG, repo: FakeRepo = createFakeRepo()): {
   bot: Bot<BotContext>;
   sentTexts: string[];
+  sentPhotos: InputFile[];
   repo: FakeRepo;
 } {
   const bot = new Bot<BotContext>(CFG.botToken, {
@@ -391,22 +392,29 @@ function createTestBot(cfg: Config = CFG, repo: FakeRepo = createFakeRepo()): {
     },
   });
   const sentTexts: string[] = [];
+  const sentPhotos: InputFile[] = [];
   bot.api.config.use(async (_prev, method, payload) => {
-    if (method !== "sendMessage") throw new Error(`Unexpected API method: ${method}`);
-    const message = payload as { chat_id: number | string; text: string };
-    sentTexts.push(message.text);
+    const message = payload as { chat_id: number | string; text?: string; photo?: InputFile };
+    if (method === "sendPhoto") {
+      if (!(message.photo instanceof InputFile)) throw new Error("Expected a photo file");
+      sentPhotos.push(message.photo);
+    } else if (method === "sendMessage") {
+      sentTexts.push(message.text ?? "");
+    } else {
+      throw new Error(`Unexpected API method: ${method}`);
+    }
     return {
       ok: true,
       result: {
-        message_id: sentTexts.length,
+        message_id: sentTexts.length + sentPhotos.length,
         date: 0,
         chat: { id: Number(message.chat_id), type: "group", title: "Тест" },
-        text: message.text,
+        ...(method === "sendPhoto" ? {} : { text: message.text }),
       },
     } as never;
   });
   registerGroupCommands(bot, cfg, repo);
-  return { bot, sentTexts, repo };
+  return { bot, sentTexts, sentPhotos, repo };
 }
 
 function mockRandom(values: readonly number[]): void {
@@ -464,8 +472,8 @@ test("/fishes is ignored in private chats", async () => {
   expect(sentTexts).toEqual([]);
 });
 
-test("/fishtop shows the total value of available inventory in a group", async () => {
-  const { bot, sentTexts, repo } = createTestBot();
+test("/fishtop sends an image of the available inventory leaderboard in a group", async () => {
+  const { bot, sentTexts, sentPhotos, repo } = createTestBot();
   const getTopFishers = spyOn(repo, "getTopFishers").mockResolvedValue([
     { firstName: "Анна<script>", total: 1_000.5 },
     { firstName: "Боб", total: 250 },
@@ -474,19 +482,19 @@ test("/fishtop shows the total value of available inventory in a group", async (
   await bot.handleUpdate(commandUpdate({ updateId: 16, text: "/fishtop" }));
 
   expect(getTopFishers).toHaveBeenCalledWith(-100, 10);
-  expect(sentTexts).toEqual([
-    "🐟Топ по стоимости инвентаря:🐟\n1| Анна&lt;script&gt; - 1000.5руб\n2| Боб - 250руб\n",
-  ]);
+  expect(sentTexts).toEqual([]);
+  expect(sentPhotos).toHaveLength(1);
 });
 
 test("/fishtop is ignored in private chats", async () => {
-  const { bot, sentTexts, repo } = createTestBot();
+  const { bot, sentTexts, sentPhotos, repo } = createTestBot();
   const getTopFishers = spyOn(repo, "getTopFishers");
 
   await bot.handleUpdate(commandUpdate({ updateId: 17, text: "/fishtop", chat: PRIVATE_CHAT }));
 
   expect(getTopFishers).not.toHaveBeenCalled();
   expect(sentTexts).toEqual([]);
+  expect(sentPhotos).toEqual([]);
 });
 
 test("/cdr removes only the replied player's cooldown in the current chat", async () => {

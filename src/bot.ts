@@ -82,7 +82,7 @@ function configureCommandOutput(ctx: BotContext, repo: Repo, command: string | u
   const sourceChatId = ctx.chat.id;
   const userId = ctx.from.id;
   ctx.api.config.use(async (prev, method, payload, signal) => {
-    if (method !== "sendMessage" && method !== "sendDocument" && method !== "editEphemeralMessageText") {
+    if (method !== "sendMessage" && method !== "sendPhoto" && method !== "sendDocument" && method !== "editEphemeralMessageText") {
       return prev(method, payload, signal);
     }
     const mode = fixedCommandOutputMode(command) ?? (await repo.getCommandOutputMode(command));

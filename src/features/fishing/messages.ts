@@ -1,4 +1,4 @@
-import type { DeletedCatch, TopFisherRow } from "../../db/index.ts";
+import type { DeletedCatch } from "../../db/index.ts";
 import { escapeHtml, round2 } from "../../lib/format.ts";
 import { formatRemaining } from "./cooldown.ts";
 import { CURSES } from "./curses.ts";
@@ -95,14 +95,6 @@ export function lastCatchRemoved(firstName: string, fish: DeletedCatch): string 
 
 export function lastCatchMissing(firstName: string): string {
   return `У ${escapeHtml(firstName)} нет пойманных рыб`;
-}
-
-export function topFishers(rows: TopFisherRow[]): string {
-  if (rows.length === 0) return "Топ инвентарей пока пустует";
-  return (
-    `🐟Топ по стоимости инвентаря:🐟\n` +
-    rows.map((row, i) => `${i + 1}| ${escapeHtml(row.firstName)} - ${round2(row.total)}руб\n`).join("")
-  );
 }
 
 export function fishCatalogMessage(catalog: Catalog, modifierDropChance: number): string {
