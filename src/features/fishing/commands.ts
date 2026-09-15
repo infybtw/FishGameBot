@@ -38,6 +38,7 @@ import {
   secondCastCurse,
   statsEmpty,
   statsMsg,
+  topFishersText,
 } from "./messages.ts";
 import { createTopCard } from "./top-card.ts";
 import {
@@ -408,6 +409,16 @@ export function registerGroupCommands(
     log.debug({ chatId: ctx.chat.id, rows: rows.length }, "Inventory fishtop calculated");
     const card = await renderTopCard(rows);
     await ctx.replyWithPhoto(new InputFile(card, "fishtop.png"));
+  });
+
+  bot.command("fishtop_text", async (ctx) => {
+    if (!isGroup(ctx)) {
+      logIgnored(ctx, "not a group chat");
+      return;
+    }
+    const rows = await repo.getTopFishers(ctx.chat.id, 10);
+    log.debug({ chatId: ctx.chat.id, rows: rows.length }, "Text inventory fishtop calculated");
+    await ctx.reply(topFishersText(rows));
   });
 
   bot.command("stats", async (ctx) => {

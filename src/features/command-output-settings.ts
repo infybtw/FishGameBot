@@ -5,6 +5,7 @@ export const COMMAND_OUTPUT_SETTINGS = [
   { command: "events", label: "Расписание событий" },
   { command: "fishes", label: "Каталог рыб" },
   { command: "fishtop", label: "Топ рыбаков" },
+  { command: "fishtop_text", label: "Топ рыбаков текстом" },
   { command: "fish_upgrade", label: "Улучшение рыбы" },
   { command: "info", label: "Информация" },
   { command: "changelog", label: "Обновления" },

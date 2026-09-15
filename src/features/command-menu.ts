@@ -14,6 +14,7 @@ const PUBLIC_GROUP_COMMANDS: BotCommand[] = [
   { command: "profile", description: "Инвентарь, удочки и баланс" },
   { command: "fishes", description: "Каталог рыб чата" },
   { command: "fishtop", description: "Топ по стоимости инвентаря" },
+  { command: "fishtop_text", description: "Топ по стоимости текстом" },
   { command: "stats", description: "Статистика рыбалки" },
   { command: "trade", description: "Предложить обмен рыбы или денег" },
   { command: "fish_upgrade", description: "Улучшить рыбу до следующей редкости" },
