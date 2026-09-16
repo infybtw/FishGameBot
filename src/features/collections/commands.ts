@@ -10,7 +10,7 @@ import {
   aggregateCollectionBuffs,
   COLLECTIONS,
   collectionProgress,
-  collectionRequiredNames,
+  collectionRequirements,
   getCollection,
 } from "./catalog.ts";
 import {
@@ -31,7 +31,6 @@ type Screen = { text: string; keyboard?: InlineKeyboard };
 
 type MenuContext = {
   entries: Map<string, CollectionMenuEntry>;
-  availableByName: Map<string, number>;
 };
 
 function logIgnored(ctx: Context, reason: string): void {
@@ -59,7 +58,7 @@ async function loadMenuContext(repo: Repo, userId: number, chatId: number): Prom
       completed: completed.has(collection.id),
     });
   }
-  return { entries, availableByName };
+  return { entries };
 }
 
 function listKeyboard(ownerUserId: number, context: MenuContext): InlineKeyboard {
@@ -91,7 +90,7 @@ async function renderDetail(repo: Repo, ownerUserId: number, chatId: number, col
   const entry = context.entries.get(collectionId);
   if (entry === undefined) return { text: COLLECTIONS_STALE };
   return {
-    text: collectionDetailCard(entry, context.availableByName, notice),
+    text: collectionDetailCard(entry, notice),
     keyboard: detailKeyboard(ownerUserId, entry),
   };
 }
@@ -163,10 +162,10 @@ export function registerCollectionCommands(bot: Bot<BotContext>, repo: Repo): vo
       return;
     }
 
-    const requiredNames = collectionRequiredNames(collection, getCatalog());
-    const result = await repo.depositCollection({ userId, chatId, collectionId: collection.id, requiredNames });
+    const required = collectionRequirements(collection, getCatalog());
+    const result = await repo.depositCollection({ userId, chatId, collectionId: collection.id, required });
     log.info(
-      { userId, chatId, collectionId: collection.id, result: result.status, required: requiredNames.length },
+      { userId, chatId, collectionId: collection.id, result: result.status, required: required.length },
       "Collection deposit attempt",
     );
     if (result.status === "completed") {

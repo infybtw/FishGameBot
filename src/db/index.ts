@@ -114,8 +114,8 @@ export type CollectionDepositInput = {
   userId: number;
   chatId: number;
   collectionId: string;
-  /** Every fish name that must be handed in; one available catch is consumed per name. */
-  requiredNames: readonly string[];
+  /** Every required fish with the number of available catches to consume. */
+  required: readonly { name: string; count: number }[];
 };
 export type CollectionDepositResult =
   | { status: "completed"; deposited: readonly string[] }
@@ -1207,20 +1207,20 @@ export function createRepo(sql: SQL): Repo {
         const completedRows = (await tx`SELECT 1 FROM fisher_collections
           WHERE user_id = ${input.userId} AND chat_id = ${input.chatId} AND collection_id = ${input.collectionId}`) as unknown[];
         if (completedRows.length > 0) return { status: "already_completed" };
-        if (input.requiredNames.length === 0) return { status: "unavailable" };
+        if (input.required.length === 0) return { status: "unavailable" };
         const selectedIds: number[] = [];
         const missing: string[] = [];
-        for (const name of input.requiredNames) {
+        for (const requirement of input.required) {
+          if (!Number.isSafeInteger(requirement.count) || requirement.count <= 0) return { status: "unavailable" };
           const rows = (await tx`SELECT id FROM caught_fishes
             WHERE user_id = ${input.userId} AND chat_id = ${input.chatId} AND inventory_state = 'available'
-              AND fish_name = ${name}
-            ORDER BY fish_price, id LIMIT 1 FOR UPDATE`) as Array<Record<string, unknown>>;
-          const row = rows[0];
-          if (row === undefined) {
-            missing.push(name);
+              AND fish_name = ${requirement.name}
+            ORDER BY fish_price, id LIMIT ${requirement.count} FOR UPDATE`) as Array<Record<string, unknown>>;
+          if (rows.length < requirement.count) {
+            missing.push(requirement.name);
             continue;
           }
-          selectedIds.push(asNumber(row.id));
+          selectedIds.push(...rows.map((row) => asNumber(row.id)));
         }
         // Atomic all-or-nothing: a single missing fish leaves the inventory untouched.
         if (missing.length > 0) return { status: "missing", missing };
@@ -1230,7 +1230,7 @@ export function createRepo(sql: SQL): Repo {
         }
         await tx`INSERT INTO fisher_collections (user_id, chat_id, collection_id)
           VALUES (${input.userId}, ${input.chatId}, ${input.collectionId}) ON CONFLICT DO NOTHING`;
-        return { status: "completed", deposited: [...input.requiredNames] };
+        return { status: "completed", deposited: input.required.map((requirement) => requirement.name) };
       });
     },
   };

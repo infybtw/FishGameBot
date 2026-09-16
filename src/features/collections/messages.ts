@@ -34,21 +34,17 @@ export function collectionsMenuCard(entries: readonly CollectionMenuEntry[], tot
   ].join("\n");
 }
 
-function requiredList(progress: CollectionProgress, availableByName: ReadonlyMap<string, number>): string {
+function requiredList(progress: CollectionProgress): string {
   if (!progress.available) return "В текущем каталоге нет рыб для этой коллекции.";
-  return progress.required
-    .map((name) => {
-      const count = availableByName.get(name) ?? 0;
-      return count > 0 ? `✅ ${escapeHtml(name)} ×${count}` : `❌ ${escapeHtml(name)}`;
+  return progress.requirements
+    .map(({ name, required, owned }) => {
+      const label = required > 1 ? `${escapeHtml(name)} ${Math.min(owned, required)}/${required}` : escapeHtml(name);
+      return owned >= required ? `✅ ${label}` : `❌ ${label}`;
     })
     .join("\n");
 }
 
-export function collectionDetailCard(
-  entry: CollectionMenuEntry,
-  availableByName: ReadonlyMap<string, number>,
-  notice?: string,
-): string {
+export function collectionDetailCard(entry: CollectionMenuEntry, notice?: string): string {
   const { collection, progress, completed } = entry;
   const lines = [
     `🗂 <b>${escapeHtml(collection.name)}</b>`,
@@ -63,7 +59,7 @@ export function collectionDetailCard(
   } else {
     lines.push(`<b>Прогресс:</b> ${progress.owned}/${progress.total}`);
   }
-  lines.push("", requiredList(progress, availableByName));
+  lines.push("", requiredList(progress));
   if (notice !== undefined) lines.push("", `⚠️ ${notice}`);
   return lines.join("\n");
 }

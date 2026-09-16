@@ -4,7 +4,7 @@ import {
   aggregateCollectionBuffs,
   collectionEffectLabel,
   collectionProgress,
-  collectionRequiredNames,
+  collectionRequirements,
   getCollection,
 } from "./catalog.ts";
 
@@ -26,40 +26,63 @@ function requireCollection(id: string) {
   return collection!;
 }
 
-describe("collection required names", () => {
-  test("a rarity collection requires every fish of that point", () => {
-    expect(collectionRequiredNames(requireCollection("rarity_1"), CATALOG)).toEqual(["Карась", "Окунь"]);
+describe("collection requirements", () => {
+  test("a rarity collection requires the configured copies of every fish of that point", () => {
+    expect(collectionRequirements(requireCollection("rarity_1"), CATALOG)).toEqual([
+      { name: "Карась", count: 2 },
+      { name: "Окунь", count: 2 },
+    ]);
+    expect(collectionRequirements(requireCollection("rarity_3"), CATALOG)).toEqual([{ name: "Сом", count: 1 }]);
   });
 
-  test("a thematic collection is intersected with the live catalog", () => {
-    expect(collectionRequiredNames(requireCollection("river"), CATALOG)).toEqual(["Карась", "Окунь", "Сом", "Щука"]);
+  test("a thematic collection is intersected with the live catalog and uses per-name counts", () => {
+    expect(collectionRequirements(requireCollection("river"), CATALOG)).toEqual([
+      { name: "Карась", count: 3 },
+      { name: "Окунь", count: 3 },
+      { name: "Сом", count: 1 },
+      { name: "Щука", count: 2 },
+    ]);
   });
 
   test("thematic names missing from the catalog are dropped", () => {
-    expect(collectionRequiredNames(requireCollection("legends"), CATALOG)).toEqual(["Золотая рыбка", "Кракен"]);
+    expect(collectionRequirements(requireCollection("legends"), CATALOG)).toEqual([
+      { name: "Золотая рыбка", count: 1 },
+      { name: "Кракен", count: 1 },
+    ]);
   });
 
   test("a collection with no catalog matches is unavailable", () => {
     const empty: Catalog = [];
     const progress = collectionProgress(requireCollection("rarity_1"), empty, new Map());
-    expect(progress).toMatchObject({ required: [], total: 0, owned: 0, ready: false, available: false });
+    expect(progress).toMatchObject({ requirements: [], total: 0, owned: 0, ready: false, available: false });
   });
 });
 
 describe("collection progress", () => {
-  test("counts owned fish and lists the missing ones", () => {
+  test("counts owned copies up to each requirement and lists the missing names", () => {
     const progress = collectionProgress(requireCollection("rarity_1"), CATALOG, new Map([["Карась", 2]]));
-    expect(progress.owned).toBe(1);
-    expect(progress.total).toBe(2);
+    expect(progress.requirements).toEqual([
+      { name: "Карась", required: 2, owned: 2 },
+      { name: "Окунь", required: 2, owned: 0 },
+    ]);
+    expect(progress.owned).toBe(2);
+    expect(progress.total).toBe(4);
     expect(progress.missing).toEqual(["Окунь"]);
     expect(progress.ready).toBe(false);
     expect(progress.available).toBe(true);
   });
 
-  test("is ready when every required fish is owned at least once", () => {
-    const progress = collectionProgress(requireCollection("rarity_1"), CATALOG, new Map([["Карась", 1], ["Окунь", 3]]));
+  test("surplus copies do not exceed the requirement", () => {
+    const progress = collectionProgress(requireCollection("rarity_1"), CATALOG, new Map([["Карась", 5], ["Окунь", 3]]));
+    expect(progress.owned).toBe(4);
     expect(progress.ready).toBe(true);
     expect(progress.missing).toEqual([]);
+  });
+
+  test("a partial multi-count requirement is not ready", () => {
+    const progress = collectionProgress(requireCollection("river"), CATALOG, new Map([["Карась", 2], ["Окунь", 3], ["Щука", 2]]));
+    expect(progress.missing).toEqual(["Карась", "Сом"]);
+    expect(progress.ready).toBe(false);
   });
 });
 

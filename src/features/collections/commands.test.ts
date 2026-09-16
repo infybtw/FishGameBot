@@ -100,11 +100,11 @@ function createFakeRepo(): FakeRepoState {
       calls.push("depositCollection");
       deposits.push(input);
       if (completed.has(input.collectionId)) return { status: "already_completed" };
-      const missing = input.requiredNames.filter((name) => (counts.get(name) ?? 0) <= 0);
+      const missing = input.required.filter(({ name, count }) => (counts.get(name) ?? 0) < count).map(({ name }) => name);
       if (missing.length > 0) return { status: "missing", missing };
-      for (const name of input.requiredNames) counts.set(name, (counts.get(name) ?? 0) - 1);
+      for (const { name, count } of input.required) counts.set(name, (counts.get(name) ?? 0) - count);
       completed.add(input.collectionId);
-      return { status: "completed", deposited: [...input.requiredNames] };
+      return { status: "completed", deposited: input.required.map(({ name }) => name) };
     },
   } as unknown as Repo;
   return { repo, calls, counts, completed, deposits };
@@ -161,7 +161,7 @@ describe("/collections command", () => {
     const text = String(sends[0]!.payload.text);
     expect(text).toContain("Коллекции");
     expect(text).toContain("Собрано:</b> 0/10");
-    expect(buttons(sends[0]!)).toContain("◻️ Обычная коллекция (0/2)");
+    expect(buttons(sends[0]!)).toContain("◻️ Обычная коллекция (0/4)");
     expect(calls).toContain("ensureFisher");
     expect(apiCalls).toContainEqual({ method: "deleteMessage", payload: { chat_id: GROUP_CHAT.id, message_id: 1 } });
   });
@@ -198,16 +198,16 @@ describe("collection detail", () => {
     expect(edits).toHaveLength(1);
     const text = String(edits[0]!.payload.text);
     expect(text).toContain("Обычная коллекция");
-    expect(text).toContain("✅ Карась ×1");
-    expect(text).toContain("❌ Окунь");
+    expect(text).toContain("❌ Карась 1/2");
+    expect(text).toContain("❌ Окунь 0/2");
     expect(buttons(edits[0]!)).toEqual(["← Назад"]);
   });
 
-  test("offers a single deposit when every fish is present", async () => {
+  test("offers a single deposit when every required copy is present", async () => {
     setCatalog(TEST_CATALOG);
     const { repo, counts } = createFakeRepo();
-    counts.set("Карась", 1);
-    counts.set("Окунь", 1);
+    counts.set("Карась", 2);
+    counts.set("Окунь", 2);
     const { bot, apiCalls } = createTestBot(repo);
 
     await bot.handleUpdate(
@@ -231,8 +231,8 @@ describe("collection deposit", () => {
   test("completing a collection consumes the fish, announces the buff, and marks it done", async () => {
     setCatalog(TEST_CATALOG);
     const { repo, counts, completed, deposits } = createFakeRepo();
-    counts.set("Карась", 1);
-    counts.set("Окунь", 2);
+    counts.set("Карась", 2);
+    counts.set("Окунь", 3);
     const { bot, apiCalls } = createTestBot(repo);
 
     await bot.handleUpdate(
@@ -245,7 +245,15 @@ describe("collection deposit", () => {
     );
 
     expect(deposits).toEqual([
-      { userId: INITIATOR.id, chatId: GROUP_CHAT.id, collectionId: "rarity_1", requiredNames: ["Карась", "Окунь"] },
+      {
+        userId: INITIATOR.id,
+        chatId: GROUP_CHAT.id,
+        collectionId: "rarity_1",
+        required: [
+          { name: "Карась", count: 2 },
+          { name: "Окунь", count: 2 },
+        ],
+      },
     ]);
     expect(completed.has("rarity_1")).toBe(true);
     expect(counts.get("Карась")).toBe(0);
@@ -281,7 +289,7 @@ describe("collection deposit", () => {
     expect(counts.get("Карась")).toBe(1);
     expect(sendCalls(apiCalls)).toHaveLength(0);
     const edits = editCalls(apiCalls);
-    expect(String(edits[0]!.payload.text)).toContain("Не хватает: Окунь");
+    expect(String(edits[0]!.payload.text)).toContain("Не хватает: Карась, Окунь");
     expect(answerCalls(apiCalls)[0]!.payload).toMatchObject({ show_alert: true });
   });
 

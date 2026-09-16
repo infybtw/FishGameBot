@@ -1,8 +1,8 @@
 import type { Catalog } from "../fishing/catalog.ts";
 
 /**
- * Collection catalog. A collection is completed by handing in one available
- * catch of every required fish; completing it permanently grants its effect.
+ * Collection catalog. A collection is completed by handing in the required
+ * copies of every required fish; completing it permanently grants its effect.
  * Definitions live in code so balance edits ship with deploys, while the
  * required fish are resolved against the live (admin-editable) catalog.
  */
@@ -17,7 +17,14 @@ export type CollectionRequirement = {
   points?: readonly number[];
   /** Exact fish names, intersected with the live catalog. */
   names?: readonly string[];
+  /** Copies required per resolved fish name; defaults to 1. */
+  count?: number;
+  /** Per-name copy counts that override `count` for the listed names. */
+  counts?: Readonly<Record<string, number>>;
 };
+
+/** One resolved requirement: hand in `count` copies of a fish name. */
+export type CollectionRequirementItem = { name: string; count: number };
 
 export type CollectionDefinition = {
   id: string;
@@ -31,15 +38,15 @@ export const COLLECTIONS: readonly CollectionDefinition[] = [
   {
     id: "rarity_1",
     name: "Обычная коллекция",
-    description: "Все обычные рыбы чата.",
-    requirement: { points: [1] },
+    description: "Все обычные рыбы чата по 2 экземпляра.",
+    requirement: { points: [1], count: 2 },
     effect: { kind: "catch_chance", points: 2 },
   },
   {
     id: "rarity_2",
     name: "Необычная коллекция",
-    description: "Все необычные рыбы чата.",
-    requirement: { points: [2] },
+    description: "Все необычные рыбы чата по 2 экземпляра.",
+    requirement: { points: [2], count: 2 },
     effect: { kind: "rarity_step", bonus: 0.03 },
   },
   {
@@ -73,15 +80,21 @@ export const COLLECTIONS: readonly CollectionDefinition[] = [
   {
     id: "river",
     name: "Речные обитатели",
-    description: "Классическая речная рыба.",
-    requirement: { names: ["Окунь", "Карась", "Щука", "Судак", "Сом", "Осётр"] },
+    description: "Классическая речная рыба: мелкой нужно больше.",
+    requirement: {
+      names: ["Окунь", "Карась", "Щука", "Судак", "Сом", "Осётр"],
+      counts: { Окунь: 3, Карась: 3, Щука: 2, Судак: 2 },
+    },
     effect: { kind: "catch_chance", points: 3 },
   },
   {
     id: "predators",
     name: "Хищники",
     description: "Опасные охотники водоёмов.",
-    requirement: { names: ["Щука", "Судак", "Сом", "Угорь", "Кракен"] },
+    requirement: {
+      names: ["Щука", "Судак", "Сом", "Угорь", "Кракен"],
+      counts: { Щука: 2, Судак: 2, Сом: 2 },
+    },
     effect: { kind: "rarity_step", bonus: 0.05 },
   },
   {
@@ -171,29 +184,36 @@ export function collectionEffectLabel(effect: CollectionEffect): string {
 }
 
 /**
- * Names that must be handed in, resolved against the live catalog. Rarity
- * groups contribute every current fish; thematic names are intersected so an
- * admin-removed fish never blocks completion. Sorted for stable display.
+ * Requirements that must be handed in, resolved against the live catalog.
+ * Rarity groups contribute every current fish; thematic names are intersected
+ * so an admin-removed fish never blocks completion. Sorted for stable display.
  */
-export function collectionRequiredNames(collection: CollectionDefinition, catalog: Catalog): string[] {
-  const names = new Set<string>();
+export function collectionRequirements(collection: CollectionDefinition, catalog: Catalog): CollectionRequirementItem[] {
+  const counts = new Map<string, number>();
   for (const group of catalog) {
     for (const template of group) {
       const byPoint = collection.requirement.points?.includes(template.point) ?? false;
       const byName = collection.requirement.names?.includes(template.name) ?? false;
-      if (byPoint || byName) names.add(template.name);
+      if (!byPoint && !byName) continue;
+      counts.set(template.name, collection.requirement.counts?.[template.name] ?? collection.requirement.count ?? 1);
     }
   }
-  return [...names].sort((a, b) => a.localeCompare(b, "ru"));
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
 }
 
+/** Required copies of one fish and how many the player currently owns. */
+export type CollectionRequirementProgress = { name: string; required: number; owned: number };
+
 export type CollectionProgress = {
-  required: readonly string[];
-  /** Required fish the player currently has at least one available copy of. */
+  requirements: readonly CollectionRequirementProgress[];
+  /** Copies the player can hand in right now. */
   owned: number;
   missing: readonly string[];
+  /** Total copies the collection requires. */
   total: number;
-  /** True when every required fish is present and can be handed in. */
+  /** True when every required copy is present and can be handed in. */
   ready: boolean;
   /** False when the live catalog no longer contains any required fish. */
   available: boolean;
@@ -204,15 +224,20 @@ export function collectionProgress(
   catalog: Catalog,
   availableByName: ReadonlyMap<string, number>,
 ): CollectionProgress {
-  const required = collectionRequiredNames(collection, catalog);
-  const missing = required.filter((name) => (availableByName.get(name) ?? 0) <= 0);
-  const owned = required.length - missing.length;
+  const requirements = collectionRequirements(collection, catalog).map((item) => ({
+    name: item.name,
+    required: item.count,
+    owned: availableByName.get(item.name) ?? 0,
+  }));
+  const missing = requirements.filter((item) => item.owned < item.required).map((item) => item.name);
+  const owned = requirements.reduce((sum, item) => sum + Math.min(item.owned, item.required), 0);
+  const total = requirements.reduce((sum, item) => sum + item.required, 0);
   return {
-    required,
+    requirements,
     owned,
     missing,
-    total: required.length,
-    ready: required.length > 0 && missing.length === 0,
-    available: required.length > 0,
+    total,
+    ready: requirements.length > 0 && missing.length === 0,
+    available: requirements.length > 0,
   };
 }
