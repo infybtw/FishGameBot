@@ -144,6 +144,8 @@ export function statsMsg(
   balance: number,
   count: number,
   rarityCounts: number[],
+  completedCollections: number,
+  totalCollections: number,
 ): string {
   let text =
     `🐋<b>Ваша статистика</b>🐋\n\n` +
@@ -151,7 +153,8 @@ export function statsMsg(
     `<b>UserName:</b> ${escapeHtml(firstName)}\n` +
     `<b>Суммарная стоимость рыб:</b> ${round2(totalPrice)}р\n` +
     `<b>Баланс:</b> ${round2(balance)}р\n` +
-    `<b>Поймано рыб:</b> ${count}\n\n`;
+    `<b>Поймано рыб:</b> ${count}\n` +
+    `<b>Закрыто коллекций:</b> ${completedCollections}/${totalCollections}\n\n`;
   for (let point = 1; point <= RARITY_LABELS.length; point++) {
     text += `<b>${RARITY_LABELS[point - 1]}</b> - ${rarityCounts[point - 1] ?? 0}\n`;
   }

@@ -309,14 +309,17 @@ function createFakeRepo(): FakeRepo {
     async getTopFishers() {
       return unexpected("getTopFishers");
     },
-    async sumUserFishPrice() {
-      return unexpected("sumUserFishPrice");
+    async sumUserFishPrice(userId, chatId) {
+      calls.push("sumUserFishPrice");
+      return catches.filter((catch_) => catch_.userId === userId && catch_.chatId === chatId).reduce((sum, catch_) => sum + catch_.price, 0);
     },
-    async countUserFishes() {
-      return unexpected("countUserFishes");
+    async countUserFishes(userId, chatId) {
+      calls.push("countUserFishes");
+      return catches.filter((catch_) => catch_.userId === userId && catch_.chatId === chatId).length;
     },
-    async countUserFishesByRarity() {
-      return unexpected("countUserFishesByRarity");
+    async countUserFishesByRarity(userId, chatId, point) {
+      calls.push("countUserFishesByRarity");
+      return catches.filter((catch_) => catch_.userId === userId && catch_.chatId === chatId && catch_.point === point).length;
     },
     async insertTemplate() {
       return unexpected("insertTemplate");
@@ -1285,6 +1288,33 @@ test("/fish raises the success chance by completed collection bonuses", async ()
   await buffed.bot.handleUpdate(commandUpdate({ updateId: 504, text: "/fish", from: PLAYER }));
   expect(buffed.repo.catches).toHaveLength(1);
   expect(buffed.repo.catches[0]!.fishName).toBe("Окунь");
+});
+
+test("/stats reports how many collections the player has completed", async () => {
+  setCatalog(FULL_CATALOG);
+  const { bot, sentTexts, repo } = createTestBot();
+  repo.fishers.set("9:-100", { userId: 9, chatId: -100, firstName: "Игрок", balance: 42 });
+  repo.completedCollections.push("rarity_1", "river");
+  repo.catches.push({
+    username: "Игрок",
+    userId: 9,
+    chatId: -100,
+    fishName: "Окунь",
+    rarity: "Обычный",
+    point: 1,
+    sizeCm: 10,
+    weightG: 100,
+    price: 50,
+    fishModifierId: null,
+    fishModifierName: null,
+    fishModifierRarity: null,
+  });
+
+  await bot.handleUpdate(commandUpdate({ updateId: 601, text: "/stats", from: PLAYER }));
+
+  expect(sentTexts).toHaveLength(1);
+  expect(sentTexts[0]).toContain("<b>Поймано рыб:</b> 1");
+  expect(sentTexts[0]).toContain("<b>Закрыто коллекций:</b> 2/10");
 });
 
 test("/cd counts down by each stored cooldown duration, not the configured one", async () => {

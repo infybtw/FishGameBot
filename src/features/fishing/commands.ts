@@ -6,7 +6,7 @@ import type { Repo } from "../../db/index.ts";
 import { isAdmin, isGroup, replyTarget } from "../../guards.ts";
 import { round2 } from "../../lib/format.ts";
 import { log } from "../../logger.ts";
-import { aggregateCollectionBuffs } from "../collections/catalog.ts";
+import { aggregateCollectionBuffs, COLLECTIONS } from "../collections/catalog.ts";
 import { getRod } from "../upgrades/rods.ts";
 import { CHANCE_UP_POINTS, getCatalog, hasRarityGroup } from "./catalog.ts";
 import { checkCooldown, cooldownSecondsLeft } from "./cooldown.ts";
@@ -447,12 +447,15 @@ export function registerGroupCommands(
       await ctx.reply(statsEmpty(ctx.from.first_name));
       return;
     }
-    const [totalPrice, count, ...rarityCounts] = await Promise.all([
+    const [totalPrice, count, completedCollectionIds, ...rarityCounts] = await Promise.all([
       repo.sumUserFishPrice(userId, chatId),
       repo.countUserFishes(userId, chatId),
+      repo.listCompletedCollectionIds(userId, chatId),
       ...[1, 2, 3, 4, 5, 6].map((point) => repo.countUserFishesByRarity(userId, chatId, point)),
     ]);
-    log.debug({ userId, chatId, count }, "Stats calculated");
-    await ctx.reply(statsMsg(userId, ctx.from.first_name, totalPrice, fisher.balance, count, rarityCounts));
+    log.debug({ userId, chatId, count, collections: completedCollectionIds.length }, "Stats calculated");
+    await ctx.reply(
+      statsMsg(userId, ctx.from.first_name, totalPrice, fisher.balance, count, rarityCounts, completedCollectionIds.length, COLLECTIONS.length),
+    );
   });
 }
