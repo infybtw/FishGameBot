@@ -38,15 +38,15 @@ export const COLLECTIONS: readonly CollectionDefinition[] = [
   {
     id: "rarity_1",
     name: "Обычная коллекция",
-    description: "Все обычные рыбы чата по 4 экземпляра.",
-    requirement: { points: [1], count: 4 },
+    description: "Все обычные рыбы чата по 2 экземпляра.",
+    requirement: { points: [1], count: 2 },
     effect: { kind: "catch_chance", points: 2 },
   },
   {
     id: "rarity_2",
     name: "Необычная коллекция",
-    description: "Все необычные рыбы чата по 3 экземпляра.",
-    requirement: { points: [2], count: 3 },
+    description: "Все необычные рыбы чата по 2 экземпляра.",
+    requirement: { points: [2], count: 2 },
     effect: { kind: "rarity_step", bonus: 0.03 },
   },
   {
@@ -59,22 +59,22 @@ export const COLLECTIONS: readonly CollectionDefinition[] = [
   {
     id: "rarity_4",
     name: "Эпическая коллекция",
-    description: "Все эпические рыбы чата.",
-    requirement: { points: [4] },
+    description: "Все эпические рыбы чата по 2 экземпляра.",
+    requirement: { points: [4], count: 2 },
     effect: { kind: "rarity_step", bonus: 0.06 },
   },
   {
     id: "rarity_5",
     name: "Легендарная коллекция",
-    description: "Все легендарные рыбы чата.",
-    requirement: { points: [5] },
+    description: "Все легендарные рыбы чата по 2 экземпляра.",
+    requirement: { points: [5], count: 2 },
     effect: { kind: "modifier_chance", points: 8 },
   },
   {
     id: "rarity_6",
     name: "Мифическая коллекция",
-    description: "Все мифические рыбы чата.",
-    requirement: { points: [6] },
+    description: "Все мифические рыбы чата по 2 экземпляра.",
+    requirement: { points: [6], count: 2 },
     effect: { kind: "price_multiplier", multiplier: 1.2 },
   },
   {

@@ -161,7 +161,7 @@ describe("/collections command", () => {
     const text = String(sends[0]!.payload.text);
     expect(text).toContain("Коллекции");
     expect(text).toContain("Собрано:</b> 0/10");
-    expect(buttons(sends[0]!)).toContain("◻️ Обычная коллекция (0/8)");
+    expect(buttons(sends[0]!)).toContain("◻️ Обычная коллекция (0/4)");
     expect(calls).toContain("ensureFisher");
     expect(apiCalls).toContainEqual({ method: "deleteMessage", payload: { chat_id: GROUP_CHAT.id, message_id: 1 } });
   });
@@ -198,16 +198,16 @@ describe("collection detail", () => {
     expect(edits).toHaveLength(1);
     const text = String(edits[0]!.payload.text);
     expect(text).toContain("Обычная коллекция");
-    expect(text).toContain("❌ Карась 1/4");
-    expect(text).toContain("❌ Окунь 0/4");
+    expect(text).toContain("❌ Карась 1/2");
+    expect(text).toContain("❌ Окунь 0/2");
     expect(buttons(edits[0]!)).toEqual(["← Назад"]);
   });
 
   test("offers a single deposit when every required copy is present", async () => {
     setCatalog(TEST_CATALOG);
     const { repo, counts } = createFakeRepo();
-    counts.set("Карась", 4);
-    counts.set("Окунь", 4);
+    counts.set("Карась", 2);
+    counts.set("Окунь", 2);
     const { bot, apiCalls } = createTestBot(repo);
 
     await bot.handleUpdate(
@@ -231,8 +231,8 @@ describe("collection deposit", () => {
   test("completing a collection consumes the fish, announces the buff, and marks it done", async () => {
     setCatalog(TEST_CATALOG);
     const { repo, counts, completed, deposits } = createFakeRepo();
-    counts.set("Карась", 4);
-    counts.set("Окунь", 5);
+    counts.set("Карась", 2);
+    counts.set("Окунь", 3);
     const { bot, apiCalls } = createTestBot(repo);
 
     await bot.handleUpdate(
@@ -250,8 +250,8 @@ describe("collection deposit", () => {
         chatId: GROUP_CHAT.id,
         collectionId: "rarity_1",
         required: [
-          { name: "Карась", count: 4 },
-          { name: "Окунь", count: 4 },
+          { name: "Карась", count: 2 },
+          { name: "Окунь", count: 2 },
         ],
       },
     ]);

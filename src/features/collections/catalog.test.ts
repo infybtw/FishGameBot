@@ -29,11 +29,11 @@ function requireCollection(id: string) {
 describe("collection requirements", () => {
   test("a rarity collection requires the configured copies of every fish of that point", () => {
     expect(collectionRequirements(requireCollection("rarity_1"), CATALOG)).toEqual([
-      { name: "Карась", count: 4 },
-      { name: "Окунь", count: 4 },
+      { name: "Карась", count: 2 },
+      { name: "Окунь", count: 2 },
     ]);
     expect(collectionRequirements(requireCollection("rarity_3"), CATALOG)).toEqual([{ name: "Сом", count: 2 }]);
-    expect(collectionRequirements(requireCollection("rarity_6"), CATALOG)).toEqual([{ name: "Золотая рыбка", count: 1 }]);
+    expect(collectionRequirements(requireCollection("rarity_6"), CATALOG)).toEqual([{ name: "Золотая рыбка", count: 2 }]);
   });
 
   test("a thematic collection is intersected with the live catalog and uses per-name counts", () => {
@@ -63,19 +63,19 @@ describe("collection progress", () => {
   test("counts owned copies up to each requirement and lists the missing names", () => {
     const progress = collectionProgress(requireCollection("rarity_1"), CATALOG, new Map([["Карась", 2]]));
     expect(progress.requirements).toEqual([
-      { name: "Карась", required: 4, owned: 2 },
-      { name: "Окунь", required: 4, owned: 0 },
+      { name: "Карась", required: 2, owned: 2 },
+      { name: "Окунь", required: 2, owned: 0 },
     ]);
     expect(progress.owned).toBe(2);
-    expect(progress.total).toBe(8);
-    expect(progress.missing).toEqual(["Карась", "Окунь"]);
+    expect(progress.total).toBe(4);
+    expect(progress.missing).toEqual(["Окунь"]);
     expect(progress.ready).toBe(false);
     expect(progress.available).toBe(true);
   });
 
   test("surplus copies do not exceed the requirement", () => {
     const progress = collectionProgress(requireCollection("rarity_1"), CATALOG, new Map([["Карась", 5], ["Окунь", 9]]));
-    expect(progress.owned).toBe(8);
+    expect(progress.owned).toBe(4);
     expect(progress.ready).toBe(true);
     expect(progress.missing).toEqual([]);
   });
