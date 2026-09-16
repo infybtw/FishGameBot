@@ -932,3 +932,121 @@ describe.skipIf(databaseUrl === undefined)("Repo fish upgrade integration", () =
     ]);
   });
 });
+
+describe.skipIf(databaseUrl === undefined)("Repo fish collections integration", () => {
+  beforeEach(async () => {
+    await resetSchema();
+  });
+
+  test("counts only the owner's available catches, grouped by name", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(1, -100, "Player");
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    await createAvailableCatch(1, -100, 1, 200, "Окунь");
+    await createAvailableCatch(1, -100, 2, 300, "Щука");
+    await createAvailableCatch(2, -100, 1, 400, "Чужая");
+    await createAvailableCatch(1, -200, 1, 500, "Другой чат");
+    await repo.recordCatch({
+      username: "Player",
+      userId: 1,
+      chatId: -100,
+      fishName: "Карась",
+      rarity: "Common",
+      point: 1,
+      sizeCm: 30,
+      weightG: 1000,
+      price: 100,
+      fishModifierId: null,
+      fishModifierName: null,
+      fishModifierRarity: null,
+    });
+    const page = await repo.getInventoryPage(1, -100, 1, 5);
+    await repo.sellFish(1, -100, page.fishes.find((fish) => fish.name === "Карась")!.id);
+
+    const counts = await repo.getAvailableCatchCounts(1, -100);
+    expect(counts.sort((a, b) => a.name.localeCompare(b.name))).toEqual([
+      { name: "Окунь", count: 2 },
+      { name: "Щука", count: 1 },
+    ]);
+  });
+
+  test("deposits the cheapest required copies of every name and records the collection", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(1, -100, "Player");
+    await createAvailableCatch(1, -100, 1, 500, "Окунь");
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    await createAvailableCatch(1, -100, 1, 900, "Окунь");
+    await createAvailableCatch(1, -100, 2, 300, "Щука");
+
+    const required = [
+      { name: "Окунь", count: 2 },
+      { name: "Щука", count: 1 },
+    ];
+    const result = await repo.depositCollection({ userId: 1, chatId: -100, collectionId: "river", required });
+
+    expect(result).toEqual({ status: "completed", deposited: ["Окунь", "Щука"] });
+    expect(await repo.listCompletedCollectionIds(1, -100)).toEqual(["river"]);
+    const rows = (await sql!`SELECT fish_name, fish_price, inventory_state FROM caught_fishes ORDER BY fish_price`) as Array<{
+      fish_name: string;
+      fish_price: number;
+      inventory_state: string;
+    }>;
+    expect(rows).toEqual([
+      { fish_name: "Окунь", fish_price: 100, inventory_state: "spent" },
+      { fish_name: "Щука", fish_price: 300, inventory_state: "spent" },
+      { fish_name: "Окунь", fish_price: 500, inventory_state: "spent" },
+      { fish_name: "Окунь", fish_price: 900, inventory_state: "available" },
+    ]);
+    expect(await repo.getAvailableCatchCounts(1, -100)).toEqual([{ name: "Окунь", count: 1 }]);
+  });
+
+  test("one short stack aborts the whole deposit without consuming anything", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(1, -100, "Player");
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    await createAvailableCatch(1, -100, 1, 200, "Окунь");
+
+    const required = [
+      { name: "Окунь", count: 2 },
+      { name: "Щука", count: 1 },
+    ];
+    const result = await repo.depositCollection({ userId: 1, chatId: -100, collectionId: "river", required });
+
+    expect(result).toEqual({ status: "missing", missing: ["Щука"] });
+    expect(await repo.listCompletedCollectionIds(1, -100)).toEqual([]);
+    expect(await repo.getAvailableCatchCounts(1, -100)).toEqual([{ name: "Окунь", count: 2 }]);
+  });
+
+  test("an empty requirement and a missing fisher are unavailable", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(1, -100, "Player");
+
+    expect(await repo.depositCollection({ userId: 1, chatId: -100, collectionId: "river", required: [] })).toEqual({
+      status: "unavailable",
+    });
+    expect(
+      await repo.depositCollection({ userId: 9, chatId: -100, collectionId: "river", required: [{ name: "Окунь", count: 1 }] }),
+    ).toEqual({ status: "unavailable" });
+  });
+
+  test("a second deposit is a no-op and concurrent deposits complete once", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+    await repo.ensureFisher(1, -100, "Player");
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    await createAvailableCatch(1, -100, 1, 100, "Окунь");
+    const input = { userId: 1, chatId: -100, collectionId: "river", required: [{ name: "Окунь", count: 1 }] };
+
+    const results = await Promise.all([repo.depositCollection(input), repo.depositCollection(input)]);
+
+    expect(results.filter((result) => result.status === "completed")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "already_completed")).toHaveLength(1);
+    expect(await repo.listCompletedCollectionIds(1, -100)).toEqual(["river"]);
+    expect(await repo.getAvailableCatchCounts(1, -100)).toEqual([{ name: "Окунь", count: 1 }]);
+    expect(await repo.depositCollection(input)).toEqual({ status: "already_completed" });
+  });
+});

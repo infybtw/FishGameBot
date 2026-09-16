@@ -18,6 +18,7 @@ const PUBLIC_GROUP_COMMANDS: BotCommand[] = [
   { command: "stats", description: "Статистика рыбалки" },
   { command: "trade", description: "Предложить обмен рыбы или денег" },
   { command: "fish_upgrade", description: "Улучшить рыбу до следующей редкости" },
+  { command: "collections", description: "Сдавать рыбу в коллекции за бонусы" },
   INFO_COMMAND,
   CHANGELOG_COMMAND,
 ];

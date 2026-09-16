@@ -4,6 +4,7 @@ import type { Chat, Update, User } from "grammy/types";
 import type { BotContext } from "../../bot.ts";
 import type { Config } from "../../config.ts";
 import type { CatchInsert, CooldownRow, Repo } from "../../db/index.ts";
+import { round2 } from "../../lib/format.ts";
 import { getCatalog, setCatalog } from "./catalog.ts";
 import { registerGroupCommands } from "./commands.ts";
 
@@ -79,6 +80,7 @@ type FakeRepo = Repo & {
   catchTimes: Map<string, FakeCooldown>;
   chanceUps: Set<string>;
   catches: CatchInsert[];
+  completedCollections: string[];
   announcements: { eventId: string; startedAt: number } | null;
   stoppedEvent: { eventId: string; startedAt: number } | null;
   disabledEventIds: Set<string>;
@@ -95,6 +97,7 @@ function createFakeRepo(): FakeRepo {
   const catchTimes = new Map<string, FakeCooldown>();
   const chanceUps = new Set<string>();
   const catches: CatchInsert[] = [];
+  const completedCollections: string[] = [];
   let announcements: { eventId: string; startedAt: number } | null = null;
   let stoppedEvent: { eventId: string; startedAt: number } | null = null;
   const disabledEventIds = new Set<string>();
@@ -108,6 +111,7 @@ function createFakeRepo(): FakeRepo {
     catchTimes,
     chanceUps,
     catches,
+    completedCollections,
     disabledEventIds,
     get announcements() {
       return announcements;
@@ -305,14 +309,17 @@ function createFakeRepo(): FakeRepo {
     async getTopFishers() {
       return unexpected("getTopFishers");
     },
-    async sumUserFishPrice() {
-      return unexpected("sumUserFishPrice");
+    async sumUserFishPrice(userId, chatId) {
+      calls.push("sumUserFishPrice");
+      return catches.filter((catch_) => catch_.userId === userId && catch_.chatId === chatId).reduce((sum, catch_) => sum + catch_.price, 0);
     },
-    async countUserFishes() {
-      return unexpected("countUserFishes");
+    async countUserFishes(userId, chatId) {
+      calls.push("countUserFishes");
+      return catches.filter((catch_) => catch_.userId === userId && catch_.chatId === chatId).length;
     },
-    async countUserFishesByRarity() {
-      return unexpected("countUserFishesByRarity");
+    async countUserFishesByRarity(userId, chatId, point) {
+      calls.push("countUserFishesByRarity");
+      return catches.filter((catch_) => catch_.userId === userId && catch_.chatId === chatId && catch_.point === point).length;
     },
     async insertTemplate() {
       return unexpected("insertTemplate");
@@ -364,6 +371,16 @@ function createFakeRepo(): FakeRepo {
     },
     async getAvailableCatch() {
       return unexpected("getAvailableCatch");
+    },
+    async listCompletedCollectionIds() {
+      calls.push("listCompletedCollectionIds");
+      return [...completedCollections].sort();
+    },
+    async getAvailableCatchCounts() {
+      return unexpected("getAvailableCatchCounts");
+    },
+    async depositCollection() {
+      return unexpected("depositCollection");
     },
   };
 }
@@ -1239,6 +1256,65 @@ test("/events is ignored in private chats", async () => {
   await bot.handleUpdate(commandUpdate({ updateId: 467, text: "/events", chat: PRIVATE_CHAT }));
 
   expect(sentTexts).toEqual([]);
+});
+
+test("/fish multiplies the caught fish price by completed collection bonuses", async () => {
+  setCatalog(FULL_CATALOG);
+  const runValues = [0, 0, 0, ...SIZE_RANDOMS];
+  mockRandom([...runValues, ...runValues]);
+
+  const control = createTestBot();
+  await control.bot.handleUpdate(commandUpdate({ updateId: 501, text: "/fish", from: PLAYER }));
+  const basePrice = control.repo.catches[0]!.price;
+
+  const buffed = createTestBot();
+  buffed.repo.completedCollections.push("legends");
+  await buffed.bot.handleUpdate(commandUpdate({ updateId: 502, text: "/fish", from: PLAYER }));
+
+  expect(buffed.repo.calls).toContain("listCompletedCollectionIds");
+  expect(buffed.repo.catches[0]!.price).toBe(round2(basePrice * 1.15));
+});
+
+test("/fish raises the success chance by completed collection bonuses", async () => {
+  setCatalog(FULL_CATALOG);
+  mockRandom([0.52, 0.52, 0, 0, 0, ...SIZE_RANDOMS]);
+
+  const control = createTestBot();
+  await control.bot.handleUpdate(commandUpdate({ updateId: 503, text: "/fish", from: PLAYER }));
+  expect(control.repo.catches).toHaveLength(0);
+
+  const buffed = createTestBot();
+  buffed.repo.completedCollections.push("rarity_1", "river");
+  await buffed.bot.handleUpdate(commandUpdate({ updateId: 504, text: "/fish", from: PLAYER }));
+  expect(buffed.repo.catches).toHaveLength(1);
+  expect(buffed.repo.catches[0]!.fishName).toBe("Окунь");
+});
+
+test("/stats reports how many collections the player has completed", async () => {
+  setCatalog(FULL_CATALOG);
+  const { bot, sentTexts, repo } = createTestBot();
+  repo.fishers.set("9:-100", { userId: 9, chatId: -100, firstName: "Игрок", balance: 42 });
+  repo.completedCollections.push("rarity_1", "river");
+  repo.catches.push({
+    username: "Игрок",
+    userId: 9,
+    chatId: -100,
+    fishName: "Окунь",
+    rarity: "Обычный",
+    point: 1,
+    sizeCm: 10,
+    weightG: 100,
+    price: 50,
+    fishModifierId: null,
+    fishModifierName: null,
+    fishModifierRarity: null,
+  });
+
+  await bot.handleUpdate(commandUpdate({ updateId: 601, text: "/stats", from: PLAYER }));
+
+  expect(sentTexts).toHaveLength(1);
+  expect(sentTexts[0]).toContain("<b>Поймано рыб:</b> 1");
+  expect(sentTexts[0]).toContain("<b>Закрыто коллекций:</b> 2/10");
 });
 
 test("/cd counts down by each stored cooldown duration, not the configured one", async () => {

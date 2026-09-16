@@ -107,6 +107,21 @@ export type TradeRow = {
   requestedFish: TradeFishDetails | null;
   status: TradeStatus;
 };
+/** One available catch name and how many specimens the player owns. */
+export type CatchNameCount = { name: string; count: number };
+/** A completed fish collection, stored permanently per user and chat. */
+export type CollectionDepositInput = {
+  userId: number;
+  chatId: number;
+  collectionId: string;
+  /** Every required fish with the number of available catches to consume. */
+  required: readonly { name: string; count: number }[];
+};
+export type CollectionDepositResult =
+  | { status: "completed"; deposited: readonly string[] }
+  | { status: "already_completed" }
+  | { status: "missing"; missing: readonly string[] }
+  | { status: "unavailable" };
 export type CreateTradeResult = { status: "created"; trade: TradeRow } | { status: "stale" };
 export type DeclineTradeResult = { status: "declined" } | { status: "not_target" } | { status: "unavailable" };
 export type AcceptTradeResult = { status: "accepted" } | { status: "not_target" } | { status: "unavailable" };
@@ -281,6 +296,16 @@ const SCHEMA_STATEMENTS = [
     command TEXT PRIMARY KEY,
     mode TEXT NOT NULL CHECK (mode IN ('normal', 'personal', 'off'))
   )`,
+  // Completed collections are permanent per user and chat; handing in a
+  // collection spends the deposited catches, so progress lives in this table.
+  `CREATE TABLE IF NOT EXISTS fisher_collections (
+    user_id BIGINT NOT NULL,
+    chat_id BIGINT NOT NULL,
+    collection_id TEXT NOT NULL,
+    completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, chat_id, collection_id),
+    FOREIGN KEY (user_id, chat_id) REFERENCES fishers(user_id, chat_id) ON DELETE CASCADE
+  )`,
 ];
 
 export function createSql(databaseUrl: string): SQL {
@@ -427,6 +452,9 @@ export type Repo = {
   declineTrade(id: number, targetUserId: number, chatId: number): Promise<DeclineTradeResult>;
   acceptTrade(id: number, targetUserId: number, chatId: number): Promise<AcceptTradeResult>;
   upgradeFish(input: UpgradeFishInput): Promise<UpgradeFishResult>;
+  listCompletedCollectionIds(userId: number, chatId: number): Promise<string[]>;
+  getAvailableCatchCounts(userId: number, chatId: number): Promise<CatchNameCount[]>;
+  depositCollection(input: CollectionDepositInput): Promise<CollectionDepositResult>;
   markFishingNetReadyNotified(userId: number, chatId: number, notifiedAt: number): Promise<void>;
   trackChatMessage(
     chatId: number,
@@ -1157,6 +1185,52 @@ export function createRepo(sql: SQL): Repo {
           VALUES (${input.firstName}, ${input.userId}, ${created.name}, ${created.weightG}, ${created.sizeCm},
           ${created.rarity}, ${created.point}, ${created.price}, ${input.chatId}, 'available')`;
         return { status: "upgraded", chance, source, created };
+      });
+    },
+    async listCompletedCollectionIds(userId, chatId): Promise<string[]> {
+      const rows = (await sql`SELECT collection_id FROM fisher_collections
+        WHERE user_id = ${userId} AND chat_id = ${chatId} ORDER BY collection_id`) as Array<Record<string, unknown>>;
+      return rows.map((row) => String(row.collection_id));
+    },
+    async getAvailableCatchCounts(userId, chatId): Promise<CatchNameCount[]> {
+      const rows = (await sql`SELECT fish_name, COUNT(*)::int AS count FROM caught_fishes
+        WHERE user_id = ${userId} AND chat_id = ${chatId} AND inventory_state = 'available'
+        GROUP BY fish_name`) as Array<Record<string, unknown>>;
+      return rows.map((row) => ({ name: String(row.fish_name), count: asNumber(row.count) }));
+    },
+    async depositCollection(input): Promise<CollectionDepositResult> {
+      return sql.begin(async (tx) => {
+        // Lock the fisher so a concurrent deposit in the same chat serializes.
+        const fisherRows = (await tx`SELECT 1 FROM fishers
+          WHERE user_id = ${input.userId} AND chat_id = ${input.chatId} FOR UPDATE`) as unknown[];
+        if (fisherRows.length === 0) return { status: "unavailable" };
+        const completedRows = (await tx`SELECT 1 FROM fisher_collections
+          WHERE user_id = ${input.userId} AND chat_id = ${input.chatId} AND collection_id = ${input.collectionId}`) as unknown[];
+        if (completedRows.length > 0) return { status: "already_completed" };
+        if (input.required.length === 0) return { status: "unavailable" };
+        const selectedIds: number[] = [];
+        const missing: string[] = [];
+        for (const requirement of input.required) {
+          if (!Number.isSafeInteger(requirement.count) || requirement.count <= 0) return { status: "unavailable" };
+          const rows = (await tx`SELECT id FROM caught_fishes
+            WHERE user_id = ${input.userId} AND chat_id = ${input.chatId} AND inventory_state = 'available'
+              AND fish_name = ${requirement.name}
+            ORDER BY fish_price, id LIMIT ${requirement.count} FOR UPDATE`) as Array<Record<string, unknown>>;
+          if (rows.length < requirement.count) {
+            missing.push(requirement.name);
+            continue;
+          }
+          selectedIds.push(...rows.map((row) => asNumber(row.id)));
+        }
+        // Atomic all-or-nothing: a single missing fish leaves the inventory untouched.
+        if (missing.length > 0) return { status: "missing", missing };
+        for (const fishId of selectedIds) {
+          await tx`UPDATE caught_fishes SET inventory_state = 'spent'
+            WHERE id = ${fishId} AND user_id = ${input.userId} AND chat_id = ${input.chatId} AND inventory_state = 'available'`;
+        }
+        await tx`INSERT INTO fisher_collections (user_id, chat_id, collection_id)
+          VALUES (${input.userId}, ${input.chatId}, ${input.collectionId}) ON CONFLICT DO NOTHING`;
+        return { status: "completed", deposited: input.required.map((requirement) => requirement.name) };
       });
     },
   };

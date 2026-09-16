@@ -1,5 +1,6 @@
 import type { InventoryFishRow, InventoryPage, RarityInventorySummary } from "../../db/index.ts";
 import { escapeHtml, round2 } from "../../lib/format.ts";
+import { collectionBuffSummary, type CollectionBuffTotals } from "../collections/catalog.ts";
 import { modifierLabel } from "../fishing/modifiers.ts";
 import { getRod, rodSpecialEffectLabel, type RodDefinition } from "./rods.ts";
 import type { RodCaseDefinition } from "../rod-cases/catalog.ts";
@@ -19,16 +20,27 @@ export function profileCard(
   baseCatchChance: number,
   availableCount: number,
   availableValue: number,
+  collectionBuffs: CollectionBuffTotals,
 ): string {
-  const effectiveCatchChance = Math.min(100, baseCatchChance + rod.catchBonusPoints);
-  return (
-    `🐟 <b>Профиль рыбака</b>\n\n` +
-    `<b>Баланс:</b> ${money(balance)}\n` +
-    `<b>Удочка:</b> ${escapeHtml(rod.name)}\n` +
-    `<b>Шанс поймать:</b> ${baseCatchChance}% → ${effectiveCatchChance}%\n` +
-    `<b>Бонус редкости:</b> +${round2(rod.rarityStepBonus * 100)}% за шаг\n` +
-    `<b>В инвентаре:</b> ${availableCount} шт. на ${money(availableValue)}`
-  );
+  const effectiveCatchChance = Math.min(100, baseCatchChance + rod.catchBonusPoints + collectionBuffs.catchChancePoints);
+  const lines = [
+    "🐟 <b>Профиль рыбака</b>",
+    "",
+    `<b>Баланс:</b> ${money(balance)}`,
+    `<b>Удочка:</b> ${escapeHtml(rod.name)}`,
+    `<b>Шанс поймать:</b> ${baseCatchChance}% → ${effectiveCatchChance}%`,
+    `<b>Бонус редкости:</b> +${round2((rod.rarityStepBonus + collectionBuffs.rarityStepBonus) * 100)}% за шаг`,
+  ];
+  if (
+    collectionBuffs.catchChancePoints > 0 ||
+    collectionBuffs.rarityStepBonus > 0 ||
+    collectionBuffs.modifierChancePoints > 0 ||
+    collectionBuffs.priceMultiplier > 1
+  ) {
+    lines.push(`<b>Бонусы коллекций:</b> ${collectionBuffSummary(collectionBuffs)}`);
+  }
+  lines.push(`<b>В инвентаре:</b> ${availableCount} шт. на ${money(availableValue)}`);
+  return lines.join("\n");
 }
 
 export function inventoryCard(inventory: InventoryPage): string {

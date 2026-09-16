@@ -4,7 +4,9 @@ import type { BotContext } from "../../bot.ts";
 import type { Config } from "../../config.ts";
 import type { Repo } from "../../db/index.ts";
 import { isAdmin, isGroup, replyTarget } from "../../guards.ts";
+import { round2 } from "../../lib/format.ts";
 import { log } from "../../logger.ts";
+import { aggregateCollectionBuffs, COLLECTIONS } from "../collections/catalog.ts";
 import { getRod } from "../upgrades/rods.ts";
 import { CHANCE_UP_POINTS, getCatalog, hasRarityGroup } from "./catalog.ts";
 import { checkCooldown, cooldownSecondsLeft } from "./cooldown.ts";
@@ -144,11 +146,18 @@ export function registerGroupCommands(
     // Runs on every allowed attempt: a user who catches nothing still appears in top with 0.
     await repo.ensureFisher(userId, chatId, firstName);
     const rod = getRod((await repo.getEquippedRodId(userId, chatId)) ?? "basic") ?? getRod("basic")!;
+    // Collection bonuses are permanent and always apply, independent of rod/event buffs.
+    const collectionBuffs = aggregateCollectionBuffs(await repo.listCompletedCollectionIds(userId, chatId));
     const rodCatchBonus = modifiers.rodBuffsEnabled ? rod.catchBonusPoints : 0;
     const rodRarityBonus = modifiers.rodBuffsEnabled ? rod.rarityStepBonus : 0;
     const rodModifierBonus = modifiers.rodBuffsEnabled && rod.acquisition === "case" && rod.specialEffect.kind === "modifier_chance" ? rod.specialEffect.bonusPoints : 0;
     const rodRarityTarget = modifiers.rodBuffsEnabled && rod.acquisition === "case" && rod.specialEffect.kind === "rarity_chance" ? rod.specialEffect : undefined;
-    const successChance = Math.min(100, cfg.catchSuccessChance + rodCatchBonus + modifiers.successChanceBonusPoints);
+    const rarityStepBonus = rodRarityBonus + collectionBuffs.rarityStepBonus;
+    const modifierDropChance = Math.min(100, cfg.fishModifierDropChance + rodModifierBonus + collectionBuffs.modifierChancePoints);
+    const successChance = Math.min(
+      100,
+      cfg.catchSuccessChance + rodCatchBonus + modifiers.successChanceBonusPoints + collectionBuffs.catchChancePoints,
+    );
     let fish: CaughtFish | null;
     let boosted = false;
     const rarityWeights = modifiers.guaranteedRarityWeights ?? modifiers.rarityWeights ?? undefined;
@@ -162,9 +171,9 @@ export function registerGroupCommands(
           };
     if (chanceUp && modifiers.guaranteedRarityWeights === null && (await repo.consumeChanceUp(userId, chatId))) {
       boosted = true;
-      fish = boostedCatch(catalog, firstName, rodRarityBonus, Math.min(100, cfg.fishModifierDropChance + rodModifierBonus), priceModifier, rodRarityTarget);
+      fish = boostedCatch(catalog, firstName, rarityStepBonus, modifierDropChance, priceModifier, rodRarityTarget);
     } else {
-      fish = tryCatch(catalog, firstName, successChance, rodRarityBonus, Math.min(100, cfg.fishModifierDropChance + rodModifierBonus), rarityWeights, priceModifier, rodRarityTarget);
+      fish = tryCatch(catalog, firstName, successChance, rarityStepBonus, modifierDropChance, rarityWeights, priceModifier, rodRarityTarget);
     }
     if (fish === null) {
       log.info(
@@ -178,6 +187,10 @@ export function registerGroupCommands(
       );
       await ctx.reply(nothingCaught(firstName));
       return;
+    }
+
+    if (collectionBuffs.priceMultiplier !== 1) {
+      fish = { ...fish, price: round2(fish.price * collectionBuffs.priceMultiplier) };
     }
 
     await repo.recordCatch({
@@ -434,12 +447,15 @@ export function registerGroupCommands(
       await ctx.reply(statsEmpty(ctx.from.first_name));
       return;
     }
-    const [totalPrice, count, ...rarityCounts] = await Promise.all([
+    const [totalPrice, count, completedCollectionIds, ...rarityCounts] = await Promise.all([
       repo.sumUserFishPrice(userId, chatId),
       repo.countUserFishes(userId, chatId),
+      repo.listCompletedCollectionIds(userId, chatId),
       ...[1, 2, 3, 4, 5, 6].map((point) => repo.countUserFishesByRarity(userId, chatId, point)),
     ]);
-    log.debug({ userId, chatId, count }, "Stats calculated");
-    await ctx.reply(statsMsg(userId, ctx.from.first_name, totalPrice, fisher.balance, count, rarityCounts));
+    log.debug({ userId, chatId, count, collections: completedCollectionIds.length }, "Stats calculated");
+    await ctx.reply(
+      statsMsg(userId, ctx.from.first_name, totalPrice, fisher.balance, count, rarityCounts, completedCollectionIds.length, COLLECTIONS.length),
+    );
   });
 }
