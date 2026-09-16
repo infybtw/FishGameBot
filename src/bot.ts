@@ -12,6 +12,7 @@ import { registerNetCommands } from "./features/nets/commands.ts";
 import { registerUpgradeCommands } from "./features/upgrades/commands.ts";
 import { registerTradeCommands } from "./features/trades/commands.ts";
 import { registerFishUpgradeCommands } from "./features/fish-upgrade/commands.ts";
+import { registerCollectionCommands } from "./features/collections/commands.ts";
 import { log } from "./logger.ts";
 import { fixedCommandOutputMode, isCommandOutputSetting } from "./features/command-output-settings.ts";
 
@@ -180,6 +181,7 @@ export function createBot(cfg: Config, repo: Repo, catalogAccess: CatalogAccess)
   registerNetCommands(bot, cfg, repo);
   registerTradeCommands(bot, repo);
   registerFishUpgradeCommands(bot, repo);
+  registerCollectionCommands(bot, repo);
   registerInfoCommands(bot);
   registerChangelogCommand(bot);
   registerAdminCommands(bot, cfg, repo, catalogAccess);

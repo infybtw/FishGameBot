@@ -36,6 +36,10 @@ function createRepoFake() {
       calls.push("getEquippedRodId");
       return "basic";
     },
+    listCompletedCollectionIds: async () => {
+      calls.push("listCompletedCollectionIds");
+      return [];
+    },
     getRarityInventory: async () => {
       calls.push("getRarityInventory");
       return [];

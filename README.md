@@ -11,6 +11,7 @@ The bot creates its PostgreSQL schema on startup and seeds a default fish catalo
 - Per-chat balances, catch history, player statistics, and leaderboard
 - Default catalog with multiple rarity tiers
 - Optional fish modifiers that boost a caught fish's size, weight, and price and stay with it through storage, selling, and trading
+- Fish collections by rarity and theme: hand in one of every required fish to earn a permanent unique bonus
 - Admin commands to add, remove, import, export, and reload fish templates
 - PostgreSQL persistence with automatic schema creation
 - Docker Compose setup for the bot, PostgreSQL, and Adminer
@@ -162,6 +163,7 @@ These commands are available in groups and supergroups:
 | `/stats` | Show your statistics for the current chat. |
 | `/trade` | Offer a player trade: reply to the other player's message with `/trade`, then offer one of your fish (or money) for one of theirs. Only the replied-to player can accept or decline the published offer. |
 | `/fish_upgrade` | Open a group menu of your available fish and try to upgrade one to the next rarity level. The menu and result messages are visible to the whole chat, but only the menu owner can press its buttons. Picking a fish opens a confirmation with the exact success chance (80/60/40/20/10% for points 1–5); a failed attempt consumes the fish. |
+| `/collections` | Open your personal collections menu. Hand in one of every required fish (rarity groups and themed sets) to complete a collection and permanently gain its unique bonus (catch chance, rarity, modifier chance, or fish price). |
 | `/info` | Show bot version, command help, and repository information. |
 
 ### Administrator commands

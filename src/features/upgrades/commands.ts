@@ -4,6 +4,7 @@ import type { Config } from "../../config.ts";
 import type { EquipResult, PurchaseResult, RarityInventorySummary, Repo, SaleResult } from "../../db/index.ts";
 import { isGroup } from "../../guards.ts";
 import { log } from "../../logger.ts";
+import { aggregateCollectionBuffs } from "../collections/catalog.ts";
 import { getCatalog } from "../fishing/catalog.ts";
 import { buildCallbackData, parseCallbackData } from "./callback-data.ts";
 import {
@@ -50,15 +51,23 @@ function homeKeyboard(ownerUserId: number): InlineKeyboard {
 }
 
 async function renderHome(repo: Repo, cfg: Config, userId: number, chatId: number): Promise<Screen> {
-  const [fisher, inventory, equippedId] = await Promise.all([
+  const [fisher, inventory, equippedId, completedCollectionIds] = await Promise.all([
     repo.getFisher(userId, chatId),
     repo.getInventoryPage(userId, chatId, 1, PAGE_SIZE),
     repo.getEquippedRodId(userId, chatId),
+    repo.listCompletedCollectionIds(userId, chatId),
   ]);
   if (fisher === null) throw new Error("Profile rendering requires an existing fisher");
   const rod = getRod(equippedId ?? "basic") ?? getRod("basic")!;
   return {
-    text: profileCard(fisher.balance, rod, cfg.catchSuccessChance, inventory.totalCount, inventory.totalValue),
+    text: profileCard(
+      fisher.balance,
+      rod,
+      cfg.catchSuccessChance,
+      inventory.totalCount,
+      inventory.totalValue,
+      aggregateCollectionBuffs(completedCollectionIds),
+    ),
     keyboard: homeKeyboard(userId),
   };
 }
