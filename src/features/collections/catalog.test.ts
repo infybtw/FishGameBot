@@ -29,18 +29,19 @@ function requireCollection(id: string) {
 describe("collection requirements", () => {
   test("a rarity collection requires the configured copies of every fish of that point", () => {
     expect(collectionRequirements(requireCollection("rarity_1"), CATALOG)).toEqual([
-      { name: "Карась", count: 2 },
-      { name: "Окунь", count: 2 },
+      { name: "Карась", count: 4 },
+      { name: "Окунь", count: 4 },
     ]);
-    expect(collectionRequirements(requireCollection("rarity_3"), CATALOG)).toEqual([{ name: "Сом", count: 1 }]);
+    expect(collectionRequirements(requireCollection("rarity_3"), CATALOG)).toEqual([{ name: "Сом", count: 2 }]);
+    expect(collectionRequirements(requireCollection("rarity_6"), CATALOG)).toEqual([{ name: "Золотая рыбка", count: 1 }]);
   });
 
   test("a thematic collection is intersected with the live catalog and uses per-name counts", () => {
     expect(collectionRequirements(requireCollection("river"), CATALOG)).toEqual([
-      { name: "Карась", count: 3 },
-      { name: "Окунь", count: 3 },
+      { name: "Карась", count: 4 },
+      { name: "Окунь", count: 4 },
       { name: "Сом", count: 1 },
-      { name: "Щука", count: 2 },
+      { name: "Щука", count: 3 },
     ]);
   });
 
@@ -62,26 +63,26 @@ describe("collection progress", () => {
   test("counts owned copies up to each requirement and lists the missing names", () => {
     const progress = collectionProgress(requireCollection("rarity_1"), CATALOG, new Map([["Карась", 2]]));
     expect(progress.requirements).toEqual([
-      { name: "Карась", required: 2, owned: 2 },
-      { name: "Окунь", required: 2, owned: 0 },
+      { name: "Карась", required: 4, owned: 2 },
+      { name: "Окунь", required: 4, owned: 0 },
     ]);
     expect(progress.owned).toBe(2);
-    expect(progress.total).toBe(4);
-    expect(progress.missing).toEqual(["Окунь"]);
+    expect(progress.total).toBe(8);
+    expect(progress.missing).toEqual(["Карась", "Окунь"]);
     expect(progress.ready).toBe(false);
     expect(progress.available).toBe(true);
   });
 
   test("surplus copies do not exceed the requirement", () => {
-    const progress = collectionProgress(requireCollection("rarity_1"), CATALOG, new Map([["Карась", 5], ["Окунь", 3]]));
-    expect(progress.owned).toBe(4);
+    const progress = collectionProgress(requireCollection("rarity_1"), CATALOG, new Map([["Карась", 5], ["Окунь", 9]]));
+    expect(progress.owned).toBe(8);
     expect(progress.ready).toBe(true);
     expect(progress.missing).toEqual([]);
   });
 
   test("a partial multi-count requirement is not ready", () => {
     const progress = collectionProgress(requireCollection("river"), CATALOG, new Map([["Карась", 2], ["Окунь", 3], ["Щука", 2]]));
-    expect(progress.missing).toEqual(["Карась", "Сом"]);
+    expect(progress.missing).toEqual(["Карась", "Окунь", "Сом", "Щука"]);
     expect(progress.ready).toBe(false);
   });
 });

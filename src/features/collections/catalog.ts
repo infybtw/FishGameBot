@@ -38,22 +38,22 @@ export const COLLECTIONS: readonly CollectionDefinition[] = [
   {
     id: "rarity_1",
     name: "Обычная коллекция",
-    description: "Все обычные рыбы чата по 2 экземпляра.",
-    requirement: { points: [1], count: 2 },
+    description: "Все обычные рыбы чата по 4 экземпляра.",
+    requirement: { points: [1], count: 4 },
     effect: { kind: "catch_chance", points: 2 },
   },
   {
     id: "rarity_2",
     name: "Необычная коллекция",
-    description: "Все необычные рыбы чата по 2 экземпляра.",
-    requirement: { points: [2], count: 2 },
+    description: "Все необычные рыбы чата по 3 экземпляра.",
+    requirement: { points: [2], count: 3 },
     effect: { kind: "rarity_step", bonus: 0.03 },
   },
   {
     id: "rarity_3",
     name: "Редкая коллекция",
-    description: "Все редкие рыбы чата.",
-    requirement: { points: [3] },
+    description: "Все редкие рыбы чата по 2 экземпляра.",
+    requirement: { points: [3], count: 2 },
     effect: { kind: "modifier_chance", points: 4 },
   },
   {
@@ -83,7 +83,7 @@ export const COLLECTIONS: readonly CollectionDefinition[] = [
     description: "Классическая речная рыба: мелкой нужно больше.",
     requirement: {
       names: ["Окунь", "Карась", "Щука", "Судак", "Сом", "Осётр"],
-      counts: { Окунь: 3, Карась: 3, Щука: 2, Судак: 2 },
+      counts: { Окунь: 4, Карась: 4, Щука: 3, Судак: 2 },
     },
     effect: { kind: "catch_chance", points: 3 },
   },
@@ -93,7 +93,7 @@ export const COLLECTIONS: readonly CollectionDefinition[] = [
     description: "Опасные охотники водоёмов.",
     requirement: {
       names: ["Щука", "Судак", "Сом", "Угорь", "Кракен"],
-      counts: { Щука: 2, Судак: 2, Сом: 2 },
+      counts: { Щука: 3, Судак: 2, Сом: 2 },
     },
     effect: { kind: "rarity_step", bonus: 0.05 },
   },
@@ -101,7 +101,10 @@ export const COLLECTIONS: readonly CollectionDefinition[] = [
     id: "deep",
     name: "Глубины",
     description: "Обитатели тёмных глубин.",
-    requirement: { names: ["Сом", "Осётр", "Белуга", "Угорь", "Кракен"] },
+    requirement: {
+      names: ["Сом", "Осётр", "Белуга", "Угорь", "Кракен"],
+      counts: { Сом: 2, Осётр: 2 },
+    },
     effect: { kind: "modifier_chance", points: 6 },
   },
   {
