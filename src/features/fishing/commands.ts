@@ -8,6 +8,7 @@ import { round2 } from "../../lib/format.ts";
 import { log } from "../../logger.ts";
 import { aggregateCollectionBuffs, COLLECTIONS } from "../collections/catalog.ts";
 import { getRod } from "../upgrades/rods.ts";
+import { getReforge } from "../upgrades/reforges.ts";
 import { CHANCE_UP_POINTS, getCatalog, hasRarityGroup } from "./catalog.ts";
 import { checkCooldown, cooldownSecondsLeft } from "./cooldown.ts";
 import { rollBalanceMultiplier, rollCurse, type Curse } from "./curses.ts";
@@ -146,11 +147,12 @@ export function registerGroupCommands(
     // Runs on every allowed attempt: a user who catches nothing still appears in top with 0.
     await repo.ensureFisher(userId, chatId, firstName);
     const rod = getRod((await repo.getEquippedRodId(userId, chatId)) ?? "basic") ?? getRod("basic")!;
+    const reforge = getReforge(await repo.getRodReforgeId(userId, chatId, rod.id));
     // Collection bonuses are permanent and always apply, independent of rod/event buffs.
     const collectionBuffs = aggregateCollectionBuffs(await repo.listCompletedCollectionIds(userId, chatId));
     const rodCatchBonus = modifiers.rodBuffsEnabled ? rod.catchBonusPoints : 0;
-    const rodRarityBonus = modifiers.rodBuffsEnabled ? rod.rarityStepBonus : 0;
-    const rodModifierBonus = modifiers.rodBuffsEnabled && rod.acquisition === "case" && rod.specialEffect.kind === "modifier_chance" ? rod.specialEffect.bonusPoints : 0;
+    const rodRarityBonus = modifiers.rodBuffsEnabled ? rod.rarityStepBonus + (reforge?.rarityStepBonus ?? 0) : 0;
+    const rodModifierBonus = modifiers.rodBuffsEnabled ? (reforge?.modifierChancePoints ?? 0) + (rod.acquisition === "case" && rod.specialEffect.kind === "modifier_chance" ? rod.specialEffect.bonusPoints : 0) : 0;
     const rodRarityTarget = modifiers.rodBuffsEnabled && rod.acquisition === "case" && rod.specialEffect.kind === "rarity_chance" ? rod.specialEffect : undefined;
     const rarityStepBonus = rodRarityBonus + collectionBuffs.rarityStepBonus;
     const modifierDropChance = Math.min(100, cfg.fishModifierDropChance + rodModifierBonus + collectionBuffs.modifierChancePoints);
@@ -189,8 +191,9 @@ export function registerGroupCommands(
       return;
     }
 
-    if (collectionBuffs.priceMultiplier !== 1) {
-      fish = { ...fish, price: round2(fish.price * collectionBuffs.priceMultiplier) };
+    const reforgePriceMultiplier = modifiers.rodBuffsEnabled ? reforge?.priceMultiplier ?? 1 : 1;
+    if (collectionBuffs.priceMultiplier !== 1 || reforgePriceMultiplier !== 1) {
+      fish = { ...fish, price: round2(fish.price * collectionBuffs.priceMultiplier * reforgePriceMultiplier) };
     }
 
     await repo.recordCatch({

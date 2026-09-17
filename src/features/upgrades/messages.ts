@@ -3,6 +3,7 @@ import { escapeHtml, round2 } from "../../lib/format.ts";
 import { collectionBuffSummary, type CollectionBuffTotals } from "../collections/catalog.ts";
 import { modifierLabel } from "../fishing/modifiers.ts";
 import { getRod, rodSpecialEffectLabel, type RodDefinition } from "./rods.ts";
+import type { ReforgeEffect } from "./reforges.ts";
 import type { RodCaseDefinition } from "../rod-cases/catalog.ts";
 
 export function money(value: number): string {
@@ -96,14 +97,16 @@ export function rodDetailCard(
   balance: number,
   inventory: readonly RarityInventorySummary[],
   unavailablePoints: ReadonlySet<number>,
+  reforge?: ReforgeEffect,
 ): string {
+  const reforgeLine = `<b>Перековка:</b> ${reforge === undefined ? "нет" : `${escapeHtml(reforge.name)} — ${reforge.description}`}\n`;
   if (rod.acquisition === "case") return (
     `🎣 <b>${escapeHtml(rod.name)}</b>\n\n` +
     `<b>Статус:</b> ${state}\n<b>Редкость:</b> ${rod.rarity}\n` +
     `<b>Источник:</b> Можно получить: только из кейсов\n` +
     `<b>Бонус к поимке:</b> +${rod.catchBonusPoints} п.п.\n` +
     `<b>Бонус редкости:</b> +${round2(rod.rarityStepBonus * 100)}% × (редкость − 1)\n\n` +
-    `<b>Особый эффект:</b> ${rodSpecialEffectLabel(rod.specialEffect)}\n\n` +
+    `<b>Особый эффект:</b> ${rodSpecialEffectLabel(rod.specialEffect)}\n${reforgeLine}\n` +
     `<b>Ваш баланс:</b> ${money(balance)}`
   );
   const byPoint = new Map(inventory.map((summary) => [summary.point, summary]));
@@ -125,9 +128,22 @@ export function rodDetailCard(
     `<b>Стоимость:</b> ${money(rod.price)}\n` +
     `<b>Рецепт:</b>\n${recipe}\n` +
     `<b>Бонус к поимке:</b> +${rod.catchBonusPoints} п.п.\n` +
-    `<b>Бонус редкости:</b> +${round2(rod.rarityStepBonus * 100)}% × (редкость − 1)\n\n` +
+    `<b>Бонус редкости:</b> +${round2(rod.rarityStepBonus * 100)}% × (редкость − 1)\n${reforgeLine}\n` +
     `<b>Ваш баланс:</b> ${money(balance)}`
   );
+}
+
+export function reforgeCard(rod: RodDefinition, inventory: InventoryPage): string {
+  const lines = [
+    `🔨 <b>Перековка: ${escapeHtml(rod.name)}</b>`,
+    "Выберите рыбу: её редкость определит тир перековки, а один из трёх эффектов этого тира выпадет случайно.",
+    "Предыдущая перековка удочки будет заменена.",
+    "",
+    `<b>Страница:</b> ${inventory.page}`,
+  ];
+  if (inventory.fishes.length === 0) lines.push("Инвентарь пуст.");
+  for (const fish of inventory.fishes) lines.push(`#${fish.id} ${escapeHtml(modifierLabel(fish.name, fish.fishModifierName))} · ${escapeHtml(fish.rarity)}`);
+  return lines.join("\n");
 }
 
 export function rodCasesCard(balance: number, cases: readonly { case: RodCaseDefinition; quantity: number }[]): string {
