@@ -113,7 +113,12 @@ export function registerChangelogCommand(bot: Bot<BotContext>): void {
       await answerStale(ctx, "out-of-range page or version");
       return;
     }
-    await ctx.editMessageText(screen.text, { reply_markup: screen.keyboard });
+    const message = ctx.callbackQuery.message;
+    if (message?.receiver_user?.id === ctx.from.id && message.ephemeral_message_id !== undefined) {
+      await ctx.editEphemeralMessageText(screen.text, { reply_markup: screen.keyboard });
+    } else {
+      await ctx.editMessageText(screen.text, { reply_markup: screen.keyboard });
+    }
     await ctx.answerCallbackQuery();
   });
 }

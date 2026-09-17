@@ -17,12 +17,15 @@ function commandUpdate(): Update {
   } as Update;
 }
 
-function callbackUpdate(data: string, userId = 1): Update {
+function callbackUpdate(data: string, userId = 1, ephemeral = false): Update {
   return {
     update_id: 2,
     callback_query: {
       id: "query-2", from: { id: userId, is_bot: false, first_name: "Игрок" }, chat_instance: "instance", data,
-      message: { message_id: 2, date: 0, chat: { id: -100, type: "supergroup", title: "Рыбаки" }, from: { id: 999, is_bot: true, first_name: "FishBot" }, text: "Обновления" },
+      message: {
+        message_id: 2, date: 0, chat: { id: -100, type: "supergroup", title: "Рыбаки" }, from: { id: 999, is_bot: true, first_name: "FishBot" }, text: "Обновления",
+        ...(ephemeral ? { receiver_user: { id: userId, is_bot: false, first_name: "Игрок" }, ephemeral_message_id: 12 } : {}),
+      },
     },
   } as Update;
 }
@@ -74,4 +77,16 @@ test("changelog callback data rejects malformed values", () => {
   expect(parseChangelogCallbackData("chg:0:v:0")).toBeNull();
   expect(parseChangelogCallbackData("chg:1:v:-1")).toBeNull();
   expect(parseChangelogCallbackData("chg:1:x:0")).toBeNull();
+});
+
+test("changelog edits a personal output as an ephemeral message", async () => {
+  const bot = new Bot<BotContext>("123:test", { botInfo: { id: 999, is_bot: true, first_name: "FishBot", username: "fishbot" } as never });
+  const calls: ApiCall[] = [];
+  bot.api.config.use(async (_prev, method, payload) => { calls.push({ method, payload: payload as Record<string, unknown> }); return { ok: true, result: true } as never; });
+  registerChangelogCommand(bot);
+
+  await bot.handleUpdate(callbackUpdate("chg:1:v:0", 1, true));
+
+  expect(calls.map((call) => call.method)).toEqual(["editEphemeralMessageText", "answerCallbackQuery"]);
+  expect(calls[0]!.payload.ephemeral_message_id).toBe(12);
 });

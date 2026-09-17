@@ -73,7 +73,8 @@ function commandForCallback(data: string | undefined): string | undefined {
   if (data === undefined) return undefined;
   if (data.startsWith("upg:")) return "profile";
   if (data.startsWith("net:")) return "net";
-  if (data.startsWith("fup:")) return "fish_upgrade";
+    if (data.startsWith("fup:")) return "fish_upgrade";
+    if (data.startsWith("chg:")) return "changelog";
   if (data.startsWith("tr:") || data.startsWith("trd:")) return "trade";
   return undefined;
 }
