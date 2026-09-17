@@ -18,8 +18,10 @@ import {
   rodCaseResultCard,
   rodCasesCard,
   rodsCard,
+  reforgeCard,
 } from "./messages.ts";
 import { getRod, RODS, type RodDefinition, type RodId } from "./rods.ts";
+import { getReforge, rollReforge } from "./reforges.ts";
 import { ROD_CASES, getRodCase, rollCaseRod } from "../rod-cases/catalog.ts";
 
 const PAGE_SIZE = 5;
@@ -155,7 +157,7 @@ async function renderRodDetail(
   rod: RodDefinition,
   notice?: string,
 ): Promise<Screen> {
-  const context = await rodContext(repo, userId, chatId);
+  const [context, reforgeId] = await Promise.all([rodContext(repo, userId, chatId), repo.getRodReforgeId(userId, chatId, rod.id)]);
   const state = rodState(rod.id, context.equippedRodId, context.purchasedRodIds);
   const unavailablePoints = new Set<number>();
   const catalog = getCatalog();
@@ -168,9 +170,21 @@ async function renderRodDetail(
   const keyboard = new InlineKeyboard();
   if (state === "Куплена") keyboard.text("Экипировать", buildCallbackData(userId, { kind: "equip", rodId: rod.id })).row();
   if (state === "Не куплена" && rod.acquisition === "shop") keyboard.text("Купить и экипировать", buildCallbackData(userId, { kind: "buy", rodId: rod.id })).row();
+  if (state !== "Не куплена") keyboard.text("🔨 Перековать", buildCallbackData(userId, { kind: "reforge", rodId: rod.id, page: 1 })).row();
   keyboard.text("Назад", buildCallbackData(userId, { kind: "rods" }));
-  const text = rodDetailCard(rod, state, context.balance, context.inventory, unavailablePoints);
+  const text = rodDetailCard(rod, state, context.balance, context.inventory, unavailablePoints, getReforge(reforgeId));
   return { text: notice === undefined ? text : `${text}\n\n⚠️ ${notice}`, keyboard };
+}
+
+async function renderReforge(repo: Repo, userId: number, chatId: number, rod: RodDefinition, page: number): Promise<Screen> {
+  const inventory = await repo.getInventoryPage(userId, chatId, page, PAGE_SIZE);
+  const keyboard = new InlineKeyboard();
+  for (const fish of inventory.fishes) keyboard.text(`Использовать #${fish.id}`, buildCallbackData(userId, { kind: "reforgeapply", rodId: rod.id, fishId: fish.id })).row();
+  if (inventory.page > 1) keyboard.text("←", buildCallbackData(userId, { kind: "reforge", rodId: rod.id, page: inventory.page - 1 }));
+  if (inventory.page * PAGE_SIZE < inventory.totalCount) keyboard.text("→", buildCallbackData(userId, { kind: "reforge", rodId: rod.id, page: inventory.page + 1 }));
+  if (inventory.page > 1 || inventory.page * PAGE_SIZE < inventory.totalCount) keyboard.row();
+  keyboard.text("Назад", buildCallbackData(userId, { kind: "rod", rodId: rod.id }));
+  return { text: reforgeCard(rod, inventory), keyboard };
 }
 
 
@@ -324,6 +338,30 @@ export function registerUpgradeCommands(bot: Bot<BotContext>, cfg: Config, repo:
           answerText = "Удочка экипирована.";
         } else {
           screen = await renderRodDetail(repo, userId, chatId, rod, "Эта удочка не куплена.");
+        }
+        break;
+      }
+      case "reforge": {
+        const rod = getRod(parsed.action.rodId);
+        if (rod === undefined) { await answerStale(ctx, userId, chatId, "unknown reforge rod"); return; }
+        screen = await renderReforge(repo, userId, chatId, rod, parsed.action.page);
+        break;
+      }
+      case "reforgeapply": {
+        const rod = getRod(parsed.action.rodId);
+        if (rod === undefined) { await answerStale(ctx, userId, chatId, "unknown reforge rod"); return; }
+        const result = await repo.reforgeRod(userId, chatId, rod.id, parsed.action.fishId, (point) => rollReforge(point)?.id ?? null);
+        if (result.status === "reforged") {
+          const reforge = getReforge(result.modifierId)!;
+          log.info({ userId, chatId, rodId: rod.id, fishId: result.source.id, point: result.source.point, modifierId: reforge.id }, "Rod reforged");
+          screen = await renderRodDetail(repo, userId, chatId, rod, `Получен эффект «${reforge.name}»: ${reforge.description}`);
+          answerText = "Удочка перекована.";
+        } else if (result.status === "not_owned") {
+          screen = await renderRods(repo, userId, chatId);
+          answerText = "Эта удочка вам не принадлежит.";
+        } else {
+          screen = await renderReforge(repo, userId, chatId, rod, 1);
+          answerText = "Рыба уже недоступна.";
         }
         break;
       }

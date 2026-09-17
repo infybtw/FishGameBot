@@ -303,6 +303,13 @@ function createFakeRepo(): FakeRepo {
       calls.push("getEquippedRodId");
       return "basic";
     },
+    async getRodReforgeId() {
+      calls.push("getRodReforgeId");
+      return null;
+    },
+    async reforgeRod() {
+      return unexpected("reforgeRod");
+    },
     async replaceAllTemplates() {
       return unexpected("replaceAllTemplates");
     },

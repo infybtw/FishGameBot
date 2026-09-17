@@ -14,6 +14,8 @@ const actions: UpgradeAction[] = [
   { kind: "rod", rodId: "poseidon" },
   { kind: "buy", rodId: "carbon" },
   { kind: "equip", rodId: "titanium" },
+  { kind: "reforge", rodId: "titanium", page: 1 },
+  { kind: "reforgeapply", rodId: "titanium", fishId: 42 },
   { kind: "cases" },
   { kind: "casebuy", caseId: "tackle_case" },
   { kind: "caseopen", caseId: "relic_case" },

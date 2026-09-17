@@ -66,6 +66,10 @@ export type EquipResult = { status: "equipped" } | { status: "not_owned" };
 export type RodCaseBalance = { caseId: string; quantity: number };
 export type BuyRodCaseResult = { status: "purchased"; balance: number; quantity: number } | { status: "insufficient_balance"; required: number; available: number };
 export type OpenRodCaseResult = { status: "opened"; rodId: string; duplicate: boolean; compensation: number; quantity: number } | { status: "no_case" };
+export type RodReforgeResult =
+  | { status: "reforged"; source: UpgradeFishSource; modifierId: string }
+  | { status: "not_available" }
+  | { status: "not_owned" };
 export type FishingNetRow = {
   userId: number;
   chatId: number;
@@ -306,6 +310,14 @@ const SCHEMA_STATEMENTS = [
     PRIMARY KEY (user_id, chat_id, collection_id),
     FOREIGN KEY (user_id, chat_id) REFERENCES fishers(user_id, chat_id) ON DELETE CASCADE
   )`,
+  `CREATE TABLE IF NOT EXISTS fisher_rod_reforges (
+    user_id BIGINT NOT NULL,
+    chat_id BIGINT NOT NULL,
+    rod_id TEXT NOT NULL,
+    modifier_id TEXT NOT NULL,
+    PRIMARY KEY (user_id, chat_id, rod_id),
+    FOREIGN KEY (user_id, chat_id) REFERENCES fishers(user_id, chat_id) ON DELETE CASCADE
+  )`,
 ];
 
 export function createSql(databaseUrl: string): SQL {
@@ -434,6 +446,8 @@ export type Repo = {
   listRodCaseBalances(userId: number, chatId: number): Promise<RodCaseBalance[]>;
   buyRodCase(userId: number, chatId: number, caseId: string, price: number): Promise<BuyRodCaseResult>;
   openRodCase(userId: number, chatId: number, caseId: string, rodId: string, duplicateCompensation: number): Promise<OpenRodCaseResult>;
+  getRodReforgeId(userId: number, chatId: number, rodId: string): Promise<string | null>;
+  reforgeRod(userId: number, chatId: number, rodId: string, fishId: number, rollModifierId: (point: number) => string | null): Promise<RodReforgeResult>;
   listTemplates(): Promise<FishTemplateRow[]>;
   replaceAllTemplates(templates: FishTemplateInsert[]): Promise<number>;
   getTopFishers(chatId: number, limit?: number): Promise<TopFisherRow[]>;
@@ -720,6 +734,31 @@ export function createRepo(sql: SQL): Repo {
       const result = await sql`UPDATE caught_fishes SET inventory_state = 'removed'
         WHERE id = ${fishId} AND user_id = ${userId} AND chat_id = ${chatId} AND inventory_state = 'available'`;
       return result.count === 1;
+    },
+    async getRodReforgeId(userId, chatId, rodId): Promise<string | null> {
+      const rows = (await sql`SELECT modifier_id FROM fisher_rod_reforges
+        WHERE user_id = ${userId} AND chat_id = ${chatId} AND rod_id = ${rodId}`) as Array<Record<string, unknown>>;
+      return rows[0] === undefined ? null : String(rows[0].modifier_id);
+    },
+    async reforgeRod(userId, chatId, rodId, fishId, rollModifierId): Promise<RodReforgeResult> {
+      return sql.begin(async (tx) => {
+        if (rodId !== "basic") {
+          const owned = (await tx`SELECT 1 FROM fisher_rods WHERE user_id = ${userId} AND chat_id = ${chatId} AND rod_id = ${rodId}`) as unknown[];
+          if (owned.length === 0) return { status: "not_owned" };
+        }
+        const rows = (await tx`SELECT id, fish_name, fish_rarity, fish_rarity_point FROM caught_fishes
+          WHERE id = ${fishId} AND user_id = ${userId} AND chat_id = ${chatId} AND inventory_state = 'available' FOR UPDATE`) as Array<Record<string, unknown>>;
+        const fish = rows[0];
+        if (fish === undefined) return { status: "not_available" };
+        const source = { id: asNumber(fish.id), name: String(fish.fish_name), rarity: String(fish.fish_rarity), point: asNumber(fish.fish_rarity_point) };
+        const modifierId = rollModifierId(source.point);
+        if (modifierId === null) return { status: "not_available" };
+        await tx`UPDATE caught_fishes SET inventory_state = 'spent' WHERE id = ${fishId}`;
+        await tx`INSERT INTO fisher_rod_reforges (user_id, chat_id, rod_id, modifier_id)
+          VALUES (${userId}, ${chatId}, ${rodId}, ${modifierId})
+          ON CONFLICT (user_id, chat_id, rod_id) DO UPDATE SET modifier_id = EXCLUDED.modifier_id`;
+        return { status: "reforged", source, modifierId };
+      });
     },
     async sellRarity(userId, chatId, point, maxFishId): Promise<SaleResult> {
       return sql.begin(async (tx) => {

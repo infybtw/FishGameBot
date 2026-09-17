@@ -12,6 +12,8 @@ export type UpgradeAction =
   | { kind: "rod"; rodId: RodId }
   | { kind: "buy"; rodId: RodId }
   | { kind: "equip"; rodId: RodId }
+  | { kind: "reforge"; rodId: RodId; page: number }
+  | { kind: "reforgeapply"; rodId: RodId; fishId: number }
   | { kind: "cases" }
   | { kind: "casebuy"; caseId: RodCaseId }
   | { kind: "caseopen"; caseId: RodCaseId };
@@ -45,6 +47,12 @@ export function buildCallbackData(ownerUserId: number, action: UpgradeAction): s
     case "fish":
       if (!Number.isSafeInteger(action.page) || action.page <= 0) throw new Error("Page must be a positive safe integer");
       return assertPayload(`${prefix}fish:${action.page}`);
+    case "reforge":
+      if (getRod(action.rodId) === undefined || !Number.isSafeInteger(action.page) || action.page <= 0) throw new Error("Invalid reforge screen");
+      return assertPayload(`${prefix}reforge:${action.rodId}:${action.page}`);
+    case "reforgeapply":
+      if (getRod(action.rodId) === undefined || !Number.isSafeInteger(action.fishId) || action.fishId <= 0) throw new Error("Invalid reforge application");
+      return assertPayload(`${prefix}reforgeapply:${action.rodId}:${action.fishId}`);
     case "sell":
       if (!Number.isSafeInteger(action.fishId) || action.fishId <= 0) throw new Error("Fish ID must be a positive safe integer");
       return assertPayload(`${prefix}sell:${action.fishId}`);
@@ -68,7 +76,7 @@ export function buildCallbackData(ownerUserId: number, action: UpgradeAction): s
   }
 }
 
-const CALLBACK_PATTERN = /^upg:([1-9]\d*):(home|rarities|rods|cases|fish:([1-9]\d*)|sell:([1-9]\d*)|rarity:([1-9]\d*)|sellr:([1-9]\d*):([1-9]\d*)|(rod|buy|equip|casebuy|caseopen):([a-z_]+))$/;
+const CALLBACK_PATTERN = /^upg:([1-9]\d*):(home|rarities|rods|cases|fish:([1-9]\d*)|sell:([1-9]\d*)|rarity:([1-9]\d*)|sellr:([1-9]\d*):([1-9]\d*)|reforge:([a-z_]+):([1-9]\d*)|reforgeapply:([a-z_]+):([1-9]\d*)|(rod|buy|equip|casebuy|caseopen):([a-z_]+))$/;
 
 export function parseCallbackData(payload: string): ParsedCallbackData | null {
   const match = CALLBACK_PATTERN.exec(payload);
@@ -84,11 +92,17 @@ export function parseCallbackData(payload: string): ParsedCallbackData | null {
   if (isPositiveSafeInteger(match[6]) && isPositiveSafeInteger(match[7])) {
     return { ownerUserId, action: { kind: "sellr", point: Number(match[6]), maxFishId: Number(match[7]) } };
   }
-  if (match[8] === "casebuy" || match[8] === "caseopen") {
-    return isRodCaseId(match[9]) ? { ownerUserId, action: { kind: match[8], caseId: match[9] } } : null;
+  if (isRodId(match[8]) && isPositiveSafeInteger(match[9])) {
+    return { ownerUserId, action: { kind: "reforge", rodId: match[8], page: Number(match[9]) } };
   }
-  if (match[8] !== undefined && isRodId(match[9])) {
-    return { ownerUserId, action: { kind: match[8] as "rod" | "buy" | "equip", rodId: match[9] } };
+  if (isRodId(match[10]) && isPositiveSafeInteger(match[11])) {
+    return { ownerUserId, action: { kind: "reforgeapply", rodId: match[10], fishId: Number(match[11]) } };
+  }
+  if (match[12] === "casebuy" || match[12] === "caseopen") {
+    return isRodCaseId(match[13]) ? { ownerUserId, action: { kind: match[12], caseId: match[13] } } : null;
+  }
+  if (match[12] !== undefined && isRodId(match[13])) {
+    return { ownerUserId, action: { kind: match[12] as "rod" | "buy" | "equip", rodId: match[13] } };
   }
   return null;
 }

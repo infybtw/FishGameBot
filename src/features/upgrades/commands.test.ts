@@ -59,6 +59,8 @@ function createRepoFake() {
     listRodCaseBalances: async () => [],
     buyRodCase: async () => ({ status: "insufficient_balance" as const, required: 2_500, available: 0 }),
     openRodCase: async () => ({ status: "no_case" as const }),
+    getRodReforgeId: async () => null,
+    reforgeRod: async () => ({ status: "not_available" as const }),
     multiplyBalance: async () => {
       throw new Error("Unexpected repo call in test: multiplyBalance");
     },
