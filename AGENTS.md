@@ -3,6 +3,7 @@
 ## Tooling and checks
 
 - Use Bun (the Docker image and lockfile target Bun 1.4); install dependencies with `bun install --frozen-lockfile`.
+- Write commit messages following the Conventional Commits specification.
 - Run `bun run typecheck` and `bun test` after TypeScript changes. There is no lint or formatter script.
 - Run a focused test file with `bun test src/features/fishing/commands.test.ts` (or another test-file path).
 - Database integration tests in `src/db/index.integration.test.ts` are skipped unless `TEST_DATABASE_URL` is set. It must point to a disposable database whose name ends in `_test`; the suite drops and recreates its `public` schema before each test.
