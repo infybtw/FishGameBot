@@ -83,13 +83,15 @@ async function applyCurse(
   userId: number,
   chatId: number,
   cooldownStartedAt: number,
+  cooldownDelaySeconds: number,
 ): Promise<string> {
   switch (curse.kind) {
     case "heavy_net": {
-      // Normal expiry adds CATCH_DELAY to the stored timestamp, so rewriting
-      // startedAt + delay makes this catch take exactly CATCH_DELAY * 2.
-      await repo.upsertCatchTime(userId, chatId, cooldownStartedAt + cfg.catchDelaySeconds, cfg.catchDelaySeconds);
-      return heavyNetCurse(cfg.catchDelaySeconds);
+      // Expiry adds the stored delay to its timestamp, so moving the timestamp
+      // ahead by the actual delay doubles this attempt's cooldown, including
+      // cooldown reductions from an active event.
+      await repo.upsertCatchTime(userId, chatId, cooldownStartedAt + cooldownDelaySeconds, cooldownDelaySeconds);
+      return heavyNetCurse(cooldownDelaySeconds);
     }
     case "second_cast": {
       await repo.deleteCatchTime(userId, chatId);
@@ -137,7 +139,8 @@ export function registerGroupCommands(
         ? scheduledEvent
         : null;
     const modifiers = getFishingModifiers(activeEvent);
-    const cooldown = await checkCooldown(repo, cfg, userId, chatId, eventCooldownSeconds(cfg.catchDelaySeconds, modifiers));
+    const cooldownDelaySeconds = eventCooldownSeconds(cfg.catchDelaySeconds, modifiers);
+    const cooldown = await checkCooldown(repo, cfg, userId, chatId, cooldownDelaySeconds);
     if (!cooldown.ok) {
       log.info({ userId, chatId, secondsLeft: cooldown.secondsLeft }, "Catch attempt blocked by cooldown");
       await ctx.reply(cooldownMsg(firstName, cooldown.secondsLeft));
@@ -233,7 +236,7 @@ export function registerGroupCommands(
       await ctx.reply(catchCard(fish, activeEvent === null ? null : activeEvent.event));
       return;
     }
-    const curseText = await applyCurse(curse, repo, cfg, userId, chatId, cooldown.startedAt);
+    const curseText = await applyCurse(curse, repo, cfg, userId, chatId, cooldown.startedAt, cooldownDelaySeconds);
     log.info({ userId, chatId, curse: curse.kind }, "Curse applied");
     await ctx.reply(`${catchCard(fish, activeEvent === null ? null : activeEvent.event)}\n\n${curseText}`);
   });

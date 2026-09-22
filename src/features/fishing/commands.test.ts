@@ -911,6 +911,26 @@ test("/fish heavy_net curse doubles the fresh cooldown while the catch stays ava
   nowSpy.mockRestore();
 });
 
+test("/fish heavy_net curse doubles the cooldown shortened by calm", async () => {
+  setCatalog(FULL_CATALOG);
+  const cfg: Config = { ...CFG, catchDelaySeconds: 3600, curseDropChance: 20 };
+  const { bot, sentTexts, repo } = createTestBot(cfg);
+  // 15:30 Moscow time — the Calm event halves the normal one-hour cooldown.
+  const start = Date.parse("2026-09-09T12:30:00.000Z") / 1000;
+  const nowSpy = spyOn(Date, "now").mockReturnValue(start * 1000);
+
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS, 0, 0]);
+  await bot.handleUpdate(commandUpdate({ updateId: 303, text: "/fish", from: PLAYER }));
+
+  expect(sentTexts.at(-1)!.endsWith(
+    "\n\n🪢 <b>Проклятие тяжёлой сети</b>\nКулдаун увеличен до 1 час 0 минут 0 секунд.",
+  )).toBe(true);
+  // The original cooldown is 30 minutes; the curse makes it one hour, not two.
+  expect(repo.catchTimes.get("9:-100")).toEqual({ lastCatchTime: start + 1800, delaySeconds: 1800 });
+
+  nowSpy.mockRestore();
+});
+
 test("/fish second_cast curse clears the fresh cooldown so the next /fish casts immediately", async () => {
   setCatalog(FULL_CATALOG);
   const cfg: Config = { ...CFG, catchDelaySeconds: 3600, curseDropChance: 20 };

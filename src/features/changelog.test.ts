@@ -48,7 +48,7 @@ test("/changelog shows a paginated version menu", async () => {
   expect(calls).toHaveLength(1);
   expect(calls[0]!.method).toBe("sendMessage");
   expect(calls[0]!.payload.text).toContain("Страница 1 из");
-  expect(buttonData(calls[0]!, "v0.13.0")).toMatch(/^chg:1:v:1$/);
+  expect(buttonData(calls[0]!, "v0.13.0")).toMatch(/^chg:1:v:2$/);
   expect(buttonData(calls[0]!, "Старее →")).toMatch(/^chg:1:p:1$/);
 });
 
