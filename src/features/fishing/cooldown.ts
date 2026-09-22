@@ -1,5 +1,6 @@
 import type { Config } from "../../config.ts";
 import type { Repo } from "../../db/index.ts";
+import { pluralRu } from "../../lib/format.ts";
 
 export type CooldownCheck = { ok: true; startedAt: number } | { ok: false; secondsLeft: number };
 
@@ -41,5 +42,9 @@ export function formatRemaining(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor(seconds / 60) - h * 60;
   const s = Math.floor(seconds % 60);
-  return `${h}часов ${m}минут ${s}секунд`;
+  return (
+    `${h} ${pluralRu(h, ["час", "часа", "часов"])} ` +
+    `${m} ${pluralRu(m, ["минута", "минуты", "минут"])} ` +
+    `${s} ${pluralRu(s, ["секунда", "секунды", "секунд"])}`
+  );
 }

@@ -178,8 +178,8 @@ describe("rod-adjusted rarity rolls", () => {
   });
 });
 
-test("formatRemaining(3725) === '1часов 2минут 5секунд'", () => {
-  expect(formatRemaining(3725)).toBe("1часов 2минут 5секунд");
+test("formatRemaining(3725) === '1 час 2 минуты 5 секунд'", () => {
+  expect(formatRemaining(3725)).toBe("1 час 2 минуты 5 секунд");
 });
 
 test("chance-up rarity weights target the boosted high-tier distribution", () => {

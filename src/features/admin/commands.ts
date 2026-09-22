@@ -16,9 +16,9 @@ import { COMMAND_OUTPUT_SETTINGS, isCommandOutputSetting, type CommandOutputSett
 
 const ADD_INVITE =
   "Введите данные для добавления новой рыбы в формате:\nfish_name/fish_rarity/fish_rarity_point";
-const ADD_OK = "Рыба успешно добавленна";
+const ADD_OK = "Рыба успешно добавлена";
 const ADD_FAIL = "Во время добавления рыбы произошла критическая ошибка";
-const REMOVE_PROMPT = "Выберите ID рыбы которую хотите удалить";
+const REMOVE_PROMPT = "Выберите ID рыбы, которую хотите удалить";
 const REMOVE_FAIL = "Произошла ошибка";
 const CANCEL_OK = "Состояние сброшено";
 const EMPTY_LIST = "Список рыб пуст";

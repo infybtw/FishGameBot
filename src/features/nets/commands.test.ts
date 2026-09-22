@@ -239,7 +239,7 @@ test("a cast stores the current timestamp only for that user and chat", async ()
   expect(nets.size).toBe(1);
   const text = String(editCalls(apiCalls)[0]!.payload.text);
   expect(text).toContain("Сеть заброшена");
-  expect(text).toContain("12часов 0минут 0секунд");
+  expect(text).toContain("12 часов 0 минут 0 секунд");
   expect(JSON.stringify(editCalls(apiCalls)[0]!.payload.reply_markup)).toContain("Забрать сеть");
   expect(answerCalls(apiCalls)).toHaveLength(1);
 });
@@ -281,7 +281,7 @@ test("collecting one second early reports the remaining time without recording c
   expect(calls).toEqual(["getFishingNet"]);
   expect(answerCalls(apiCalls)).toEqual([
     expect.objectContaining({
-      payload: expect.objectContaining({ text: "Ещё нельзя забрать сеть. Осталось: 0часов 0минут 1секунд." }),
+      payload: expect.objectContaining({ text: "Ещё нельзя забрать сеть. Осталось: 0 часов 0 минут 1 секунда." }),
     }),
   ]);
   expect(catches).toHaveLength(0);
@@ -395,7 +395,7 @@ test("a raced collection repeats the early answer and grants no fish", async () 
 
   expect(answerCalls(apiCalls)).toEqual([
     expect.objectContaining({
-      payload: expect.objectContaining({ text: "Ещё нельзя забрать сеть. Осталось: 0часов 0минут 0секунд." }),
+      payload: expect.objectContaining({ text: "Ещё нельзя забрать сеть. Осталось: 0 часов 0 минут 0 секунд." }),
     }),
   ]);
   expect(catches).toHaveLength(0);

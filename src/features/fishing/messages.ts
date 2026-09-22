@@ -1,5 +1,5 @@
 import type { DeletedCatch, TopFisherRow } from "../../db/index.ts";
-import { escapeHtml, round2 } from "../../lib/format.ts";
+import { escapeHtml, formatRubles, round2 } from "../../lib/format.ts";
 import { formatRemaining } from "./cooldown.ts";
 import { CURSES } from "./curses.ts";
 import type { CaughtFish } from "./generator.ts";
@@ -14,21 +14,21 @@ export function catchCard(fish: CaughtFish, activeEvent: TimeEvent | null = null
     activeEvent === null ? "" : `\n\n${activeEvent.emoji} <b>Событие «${escapeHtml(activeEvent.name)}»</b>: ${escapeHtml(activeEvent.effect)}`;
   return (
     `${escapeHtml(fish.catcherFirstName)}\n` +
-    `🌟 Удача! Вы смогли вытянуть Рыбу🌟\n` +
+    `🌟 Удача! Вы смогли вытянуть рыбу🌟\n` +
     `<b>Имя:</b> ${escapeHtml(fish.name)} \n` +
     `<b>Редкость:</b> ${escapeHtml(fish.rarity)}\n` +
     modifierLine +
-    `<b>Вес:</b> ${round2(fish.weightG / 1000)}кг\n` +
-    `<b>Размер:</b> ${fish.sizeCm}см\n` +
+    `<b>Вес:</b> ${round2(fish.weightG / 1000)} кг\n` +
+    `<b>Размер:</b> ${fish.sizeCm} см\n` +
     `\n` +
-    `<b>Цена:</b> ${round2(fish.price)}рублей\n` +
+    `<b>Цена:</b> ${formatRubles(fish.price)}\n` +
     `Рыба добавлена в инвентарь. Продайте её через /profile.` +
     eventLine
   );
 }
 
 export function nothingCaught(firstName: string): string {
-  return `${escapeHtml(firstName)}\n😫Упс похоже ты ничего не поймал😫`;
+  return `${escapeHtml(firstName)}\n😫Упс, похоже, ты ничего не поймал😫`;
 }
 
 export function cooldownMsg(firstName: string, secondsLeft: number): string {
@@ -80,7 +80,7 @@ export function kamazCooldown(firstName: string, hours: number): string {
   const remainder = hours % 100;
   const lastDigit = hours % 10;
   const unit = remainder >= 11 && remainder <= 14 ? "часов" : lastDigit === 1 ? "час" : lastDigit >= 2 && lastDigit <= 4 ? "часа" : "часов";
-  return `${escapeHtml(firstName)}\nВас сбил камаз, для востановления потребуется ${hours} ${unit}`;
+  return `${escapeHtml(firstName)}\nВас сбил КамАЗ, для восстановления потребуется ${hours} ${unit}`;
 }
 
 export function chanceUpGranted(firstName: string): string {
@@ -99,7 +99,7 @@ export function lastCatchMissing(firstName: string): string {
 
 export function topFishersText(rows: readonly TopFisherRow[]): string {
   if (rows.length === 0) return "Топ рыбаков пока пустует";
-  return `🐟Топ рыбаков:🐟\n${rows.map((row, index) => `${index + 1}| ${escapeHtml(row.firstName)} - ${round2(row.total)}руб\n`).join("")}`;
+  return `🐟Топ рыбаков:🐟\n${rows.map((row, index) => `${index + 1}| ${escapeHtml(row.firstName)} - ${round2(row.total)} руб\n`).join("")}`;
 }
 
 export function fishCatalogMessage(catalog: Catalog, modifierDropChance: number): string {
@@ -151,8 +151,8 @@ export function statsMsg(
     `🐋<b>Ваша статистика</b>🐋\n\n` +
     `<b>UserID:</b> ${userId}\n` +
     `<b>UserName:</b> ${escapeHtml(firstName)}\n` +
-    `<b>Суммарная стоимость рыб:</b> ${round2(totalPrice)}р\n` +
-    `<b>Баланс:</b> ${round2(balance)}р\n` +
+    `<b>Суммарная стоимость рыб:</b> ${round2(totalPrice)} р\n` +
+    `<b>Баланс:</b> ${round2(balance)} р\n` +
     `<b>Поймано рыб:</b> ${count}\n` +
     `<b>Закрыто коллекций:</b> ${completedCollections}/${totalCollections}\n\n`;
   for (let point = 1; point <= RARITY_LABELS.length; point++) {

@@ -4,7 +4,7 @@ import type { Chat, Update, User } from "grammy/types";
 import type { BotContext } from "../../bot.ts";
 import type { Config } from "../../config.ts";
 import type { CatchInsert, CooldownRow, Repo } from "../../db/index.ts";
-import { round2 } from "../../lib/format.ts";
+import { formatRubles, round2 } from "../../lib/format.ts";
 import { getCatalog, setCatalog } from "./catalog.ts";
 import { registerGroupCommands } from "./commands.ts";
 
@@ -532,7 +532,7 @@ test("/fishtop_text sends the inventory leaderboard as text in a group", async (
 
   expect(getTopFishers).toHaveBeenCalledWith(-100, 10);
   expect(sentPhotos).toEqual([]);
-  expect(sentTexts).toEqual(["🐟Топ рыбаков:🐟\n1| Анна&lt;script&gt; - 1000.5руб\n2| Боб - 250руб\n"]);
+  expect(sentTexts).toEqual(["🐟Топ рыбаков:🐟\n1| Анна&lt;script&gt; - 1000.5 руб\n2| Боб - 250 руб\n"]);
 });
 
 test("/fishtop_text is ignored in private chats", async () => {
@@ -581,7 +581,7 @@ test("/cda applies the default 12-hour cooldown to the replied player", async ()
 
   await bot.handleUpdate(commandUpdate({ updateId: 209, text: "/cda", from: ADMIN, replyTo: PLAYER }));
 
-  expect(sentTexts).toEqual(["Игрок\nВас сбил камаз, для востановления потребуется 12 часов"]);
+  expect(sentTexts).toEqual(["Игрок\nВас сбил КамАЗ, для восстановления потребуется 12 часов"]);
   expect(repo.calls).toEqual(["upsertCatchTime"]);
   expect(repo.catchTimes.get("9:-100")).toEqual({ lastCatchTime: 10_000, delaySeconds: 43_200 });
   nowSpy.mockRestore();
@@ -597,7 +597,7 @@ test("/cda applies the supplied number of hours and rejects invalid usage", asyn
   await bot.handleUpdate(commandUpdate({ updateId: 213, text: "/cda 3", from: ADMIN }));
 
   expect(sentTexts).toEqual([
-    "Игрок\nВас сбил камаз, для востановления потребуется 3 часа",
+    "Игрок\nВас сбил КамАЗ, для восстановления потребуется 3 часа",
     "Укажите положительное целое количество часов.",
     "Укажите положительное целое количество часов.",
     "Ответьте на сообщение пользователя командой /cda [часов]",
@@ -888,7 +888,7 @@ test("/fish heavy_net curse doubles the fresh cooldown while the catch stays ava
   expect(sentTexts).toHaveLength(1);
   expect(sentTexts[0]).toContain("<b>Имя:</b> Окунь");
   expect(sentTexts[0]!.endsWith(
-    "\n\n🪢 <b>Проклятие тяжёлой сети</b>\nКулдаун увеличен до 2часов 0минут 0секунд.",
+    "\n\n🪢 <b>Проклятие тяжёлой сети</b>\nКулдаун увеличен до 2 часа 0 минут 0 секунд.",
   )).toBe(true);
   expect(repo.catches).toHaveLength(1);
   expect(repo.catchTimes.get("9:-100")).toEqual({ lastCatchTime: start + 3600, delaySeconds: 3600 });
@@ -956,7 +956,7 @@ test("/fish golden_scales curse multiplies only the catcher's chat balance, not 
   expect(sentTexts[0]).toContain("<b>Имя:</b> Окунь");
   expect(sentTexts[0]!.endsWith("\n\n🪙 <b>Проклятие золотой чешуи</b>\nВаш баланс умножен на ×1.2.")).toBe(true);
   expect(repo.catches).toHaveLength(1);
-  expect(sentTexts[0]).toContain(`<b>Цена:</b> ${repo.catches[0]!.price}рублей`);
+  expect(sentTexts[0]).toContain(`<b>Цена:</b> ${formatRubles(repo.catches[0]!.price)}`);
   expect(repo.fishers.get("9:-100")!.balance).toBeCloseTo(300, 10);
   expect(repo.fishers.get("9:-200")!.balance).toBe(250);
   // The money curse never touches the catch's own cooldown.
@@ -985,7 +985,7 @@ test("/fish records the rolled modifier, shows it on the card, and stores its di
   });
   expect(sentTexts).toHaveLength(1);
   expect(sentTexts[0]).toContain("<b>Модификатор:</b> Золотая (Редкий)");
-  expect(sentTexts[0]).toContain("<b>Цена:</b> 355.25рублей");
+  expect(sentTexts[0]).toContain("<b>Цена:</b> 355.25 рубля");
 });
 
 test("/fish leaves no modifier trace for an unmodified catch", async () => {
@@ -1092,7 +1092,7 @@ test("/fish outside events keeps the base success chance", async () => {
   await bot.handleUpdate(commandUpdate({ updateId: 401, text: "/fish", from: PLAYER }));
 
   expect(repo.catches).toHaveLength(0);
-  expect(sentTexts).toEqual(["Игрок\n😫Упс похоже ты ничего не поймал😫"]);
+  expect(sentTexts).toEqual(["Игрок\n😫Упс, похоже, ты ничего не поймал😫"]);
   expect(repo.catchTimes.size).toBe(1); // the attempt still started a cooldown
 
   nowSpy.mockRestore();
@@ -1136,7 +1136,7 @@ test("/fish during Штиль starts a halved cooldown that keeps its duration a
   mockRandom([]);
   await bot.handleUpdate(commandUpdate({ updateId: 421, text: "/fish", from: PLAYER }));
   expect(sentTexts.at(-1)).toContain("Вы недавно ловили рыбу");
-  expect(sentTexts.at(-1)).toContain("13минут 20секунд");
+  expect(sentTexts.at(-1)).toContain("13 минут 20 секунд");
   expect(repo.catchTimes.get("9:-100")).toEqual({ lastCatchTime: start / 1000, delaySeconds: 1800 });
 
   // The event is over, but the stored 1800s duration still governs expiry.
@@ -1163,7 +1163,7 @@ test("/fish during Ночной трофей records high-tier prices multiplied
 
   expect(repo.catches[0]!.point).toBe(5);
   expect(repo.catches[0]!.price).toBe(38121.09);
-  expect(sentTexts[0]).toContain("<b>Цена:</b> 38121.09рублей");
+  expect(sentTexts[0]).toContain("<b>Цена:</b> 38121.09 рубля");
   expect(sentTexts[0]).toContain("Событие «Ночной трофей»");
 
   nowSpy.mockRestore();
