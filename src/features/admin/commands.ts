@@ -12,6 +12,7 @@ import { aggregateCollectionBuffs } from "../collections/catalog.ts";
 import { getRod, rodSpecialEffectLabel, RODS } from "../upgrades/rods.ts";
 import { getRodCase } from "../rod-cases/catalog.ts";
 import { TIME_EVENTS } from "../fishing/time-events.ts";
+import { formatEndDate, parseEndDate } from "../fishing/schedule.ts";
 import { COMMAND_OUTPUT_SETTINGS, isCommandOutputSetting, type CommandOutputSetting } from "../command-output-settings.ts";
 
 const ADD_INVITE =
@@ -34,6 +35,10 @@ const APROFILE_USAGE = "Использование: ответьте коман�
 const APROFILE_EMPTY = "У этого игрока ещё нет профиля в этом чате.";
 const APROFILE_STALE = "Меню устарело. Откройте профиль заново.";
 const APANEL_STALE = "Панель устарела. Откройте /apanel заново.";
+const SETENDDATE_USAGE = "Использование: /setenddate ДД.ММ.ГГГГ";
+const SETENDDATE_INVALID = "Укажите существующую дату в формате ДД.ММ.ГГГГ, например 01.01.1970.";
+const setEndDateOk = (display: string): string => `Последний день рыбалки: ${display}. После него /fish будет сообщать, что рыба закончилась.`;
+const SETSTARTDATE_OK = "Рыбалка возобновлена.";
 
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -435,6 +440,36 @@ export function registerAdminCommands(
     await ctx.conversation.exitAll();
     log.info("Conversations reset by admin");
     await ctx.reply(CANCEL_OK);
+  });
+
+  bot.command("setenddate", async (ctx) => {
+    if (!isAdmin(ctx, cfg.adminUserId)) {
+      logAdminRejected(ctx, "setenddate");
+      return;
+    }
+    if (ctx.match.trim() === "") {
+      await ctx.reply(SETENDDATE_USAGE);
+      return;
+    }
+    const endDate = parseEndDate(ctx.match);
+    if (endDate === null) {
+      log.warn({ userId: ctx.from?.id, raw: ctx.match.slice(0, 20) }, "Invalid fishing end date received");
+      await ctx.reply(SETENDDATE_INVALID);
+      return;
+    }
+    await repo.setFishingEndDate(endDate);
+    log.info({ userId: ctx.from?.id, endDate }, "Fishing end date set by admin");
+    await ctx.reply(setEndDateOk(formatEndDate(endDate)));
+  });
+
+  bot.command("setstartdate", async (ctx) => {
+    if (!isAdmin(ctx, cfg.adminUserId)) {
+      logAdminRejected(ctx, "setstartdate");
+      return;
+    }
+    await repo.setFishingEndDate(null);
+    log.info({ userId: ctx.from?.id }, "Fishing season resumed by admin");
+    await ctx.reply(SETSTARTDATE_OK);
   });
 
   bot.command("cclear", async (ctx) => {
