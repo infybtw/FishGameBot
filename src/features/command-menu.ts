@@ -46,6 +46,8 @@ const OWNER_PRIVATE_COMMANDS: BotCommand[] = [
   { command: "export_fish", description: "Экспорт каталога в JSON" },
   { command: "get_fish_list", description: "Показать каталог рыб" },
   { command: "reload_fish_list", description: "Перезагрузить каталог" },
+  { command: "setenddate", description: "Дата окончания рыбалки (ДД.ММ.ГГГГ)" },
+  { command: "setstartdate", description: "Возобновить рыбалку" },
   { command: "cancel", description: "Отменить активный диалог" },
   { command: "cclear", description: "Удалить сообщения и команды" },
   { command: "apanel", description: "Настройки бота" },

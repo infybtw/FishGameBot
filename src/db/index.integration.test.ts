@@ -410,6 +410,24 @@ describe.skipIf(databaseUrl === undefined)("Repo cooldowns and time event announ
     await repo.setTimeEventStop("night_trophy", 2_000);
     expect(await repo.getTimeEventStop()).toEqual({ eventId: "night_trophy", startedAt: 2_000 });
   });
+
+  test("the fishing end date upserts a single row and can be cleared", async () => {
+    await migrateSchema(sql!);
+    const repo = createRepo(sql!);
+
+    expect(await repo.getFishingEndDate()).toBeNull();
+
+    await repo.setFishingEndDate("2026-12-31");
+    expect(await repo.getFishingEndDate()).toBe("2026-12-31");
+    const rows = (await sql!`SELECT end_date FROM fishing_schedule`) as unknown[];
+    expect(rows).toHaveLength(1);
+
+    await repo.setFishingEndDate("2027-01-01");
+    expect(await repo.getFishingEndDate()).toBe("2027-01-01");
+
+    await repo.setFishingEndDate(null);
+    expect(await repo.getFishingEndDate()).toBeNull();
+  });
 });
 
 describe.skipIf(databaseUrl === undefined)("Repo fishing nets integration", () => {

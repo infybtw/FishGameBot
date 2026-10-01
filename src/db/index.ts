@@ -318,6 +318,12 @@ const SCHEMA_STATEMENTS = [
     PRIMARY KEY (user_id, chat_id, rod_id),
     FOREIGN KEY (user_id, chat_id) REFERENCES fishers(user_id, chat_id) ON DELETE CASCADE
   )`,
+  // Global fishing season schedule: a single row holds the optional last day
+  // of fishing as an ISO `YYYY-MM-DD` date (NULL means fishing is ongoing).
+  `CREATE TABLE IF NOT EXISTS fishing_schedule (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    end_date TEXT
+  )`,
 ];
 
 export function createSql(databaseUrl: string): SQL {
@@ -424,6 +430,8 @@ export type Repo = {
   setTimeEventDisabled(eventId: string, disabled: boolean): Promise<void>;
   getCommandOutputMode(command: string): Promise<CommandOutputMode>;
   setCommandOutputMode(command: string, mode: CommandOutputMode): Promise<void>;
+  getFishingEndDate(): Promise<string | null>;
+  setFishingEndDate(endDate: string | null): Promise<void>;
   grantChanceUp(userId: number, chatId: number): Promise<void>;
   hasChanceUp(userId: number, chatId: number): Promise<boolean>;
   consumeChanceUp(userId: number, chatId: number): Promise<boolean>;
@@ -606,6 +614,15 @@ export function createRepo(sql: SQL): Repo {
     async setCommandOutputMode(command, mode): Promise<void> {
       await sql`INSERT INTO command_output_settings (command, mode) VALUES (${command}, ${mode})
         ON CONFLICT (command) DO UPDATE SET mode = EXCLUDED.mode`;
+    },
+    async getFishingEndDate(): Promise<string | null> {
+      const rows = (await sql`SELECT end_date FROM fishing_schedule WHERE id = 1`) as Array<Record<string, unknown>>;
+      const endDate = rows[0]?.end_date;
+      return endDate === null || endDate === undefined ? null : String(endDate);
+    },
+    async setFishingEndDate(endDate): Promise<void> {
+      await sql`INSERT INTO fishing_schedule (id, end_date) VALUES (1, ${endDate})
+        ON CONFLICT (id) DO UPDATE SET end_date = EXCLUDED.end_date`;
     },
     async grantChanceUp(userId: number, chatId: number): Promise<void> {
       await sql`INSERT INTO chance_up (user_id, chat_id)

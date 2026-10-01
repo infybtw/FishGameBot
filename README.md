@@ -178,6 +178,8 @@ Only the account matching `ADMIN_USER_ID` can use these commands:
 | `/reload_fish_list` | Reload the in-memory catalog from PostgreSQL. |
 | `/import_fish` | Replace the catalog from an uploaded JSON file. |
 | `/export_fish` | Download the catalog as JSON. |
+| `/setenddate` | Set the last day of fishing as `ДД.ММ.ГГГГ`. From the next day on, `/fish` replies that the lake has run out of fish. |
+| `/setstartdate` | Clear the end date and resume fishing. |
 | `/cancel` | Exit active admin conversations. |
 
 Import files must contain an array of objects with this shape:

@@ -22,6 +22,7 @@ import {
   COOLDOWNS_EMPTY,
   CR_USAGE,
   FAKE_FISH_CATALOG_EMPTY,
+  FISHING_ENDED,
   catchCard,
   chanceUpGranted,
   cooldownList,
@@ -44,6 +45,7 @@ import {
   topFishersText,
 } from "./messages.ts";
 import { createTopCard } from "./top-card.ts";
+import { isFishingEnded } from "./schedule.ts";
 import {
   eventCooldownSeconds,
   getActiveTimeEvent,
@@ -119,6 +121,13 @@ export function registerGroupCommands(
     const userId = ctx.from.id;
     const chatId = ctx.chat.id;
     const firstName = ctx.from.first_name;
+
+    const fishingEndDate = await repo.getFishingEndDate();
+    if (fishingEndDate !== null && isFishingEnded(fishingEndDate, new Date(), cfg.eventTimeZone)) {
+      log.info({ userId, chatId, endDate: fishingEndDate }, "Catch attempt blocked: fishing season ended");
+      await ctx.reply(FISHING_ENDED);
+      return;
+    }
 
     const catalog = getCatalog();
     const chanceUp = await repo.hasChanceUp(userId, chatId);

@@ -27,6 +27,8 @@ export function catchCard(fish: CaughtFish, activeEvent: TimeEvent | null = null
   );
 }
 
+export const FISHING_ENDED = "Похоже в озере закончилась рыба...";
+
 export function nothingCaught(firstName: string): string {
   return `${escapeHtml(firstName)}\n😫Упс, похоже, ты ничего не поймал😫`;
 }

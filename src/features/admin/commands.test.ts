@@ -47,6 +47,7 @@ function createBot(messageIds: number[]): {
   grantedRodIds: string[];
   disabledEventIds: Set<string>;
   commandModes: Map<string, string>;
+  readFishingEndDate: () => string | null;
 } {
   const deleted: number[] = [];
   const requested: Array<number | undefined> = [];
@@ -58,6 +59,7 @@ function createBot(messageIds: number[]): {
   const grantedRodIds: string[] = [];
   const disabledEventIds = new Set<string>();
   const commandModes = new Map<string, string>();
+  let fishingEndDate: string | null = null;
   const repo = {
     async listRecentClearableMessageIds(_chatId: number, limit?: number) {
       requested.push(limit);
@@ -115,6 +117,12 @@ function createBot(messageIds: number[]): {
     async setCommandOutputMode(command: string, mode: string) {
       commandModes.set(command, mode);
     },
+    async getFishingEndDate() {
+      return fishingEndDate;
+    },
+    async setFishingEndDate(endDate: string | null) {
+      fishingEndDate = endDate;
+    },
   } as unknown as Repo;
   const bot = new Bot<BotContext>(CFG.botToken, {
     botInfo: {
@@ -150,7 +158,7 @@ function createBot(messageIds: number[]): {
   bot.use(conversations());
   const catalogAccess: CatalogAccess = { async reload() { return []; } };
   registerAdminCommands(bot, CFG, repo, catalogAccess);
-  return { bot, deleted, requested, replies, ephemeralReceiverIds, removedFishIds, removedRodIds, grantedRodIds, disabledEventIds, commandModes };
+  return { bot, deleted, requested, replies, ephemeralReceiverIds, removedFishIds, removedRodIds, grantedRodIds, disabledEventIds, commandModes, readFishingEndDate: () => fishingEndDate };
 }
 
 describe("/cclear", () => {
@@ -343,5 +351,57 @@ describe("/apanel", () => {
       },
     } as Update);
     expect(commandModes).toEqual(new Map([["fish", "personal"]]));
+  });
+});
+
+describe("/setenddate and /setstartdate", () => {
+  test("stores a parsed dd.mm.yyyy end date for the admin", async () => {
+    const { bot, replies, readFishingEndDate } = createBot([]);
+
+    await bot.handleUpdate(update("/setenddate 01.01.1970"));
+
+    expect(readFishingEndDate()).toBe("1970-01-01");
+    expect(replies).toEqual([
+      "Последний день рыбалки: 01.01.1970. После него /fish будет сообщать, что рыба закончилась.",
+    ]);
+  });
+
+  test("rejects a malformed or impossible date without changing the schedule", async () => {
+    const { bot, replies, readFishingEndDate } = createBot([]);
+
+    await bot.handleUpdate(update("/setenddate 31.02.2024"));
+    await bot.handleUpdate(update("/setenddate tomorrow"));
+
+    expect(readFishingEndDate()).toBeNull();
+    expect(replies).toEqual([
+      "Укажите существующую дату в формате ДД.ММ.ГГГГ, например 01.01.1970.",
+      "Укажите существующую дату в формате ДД.ММ.ГГГГ, например 01.01.1970.",
+    ]);
+  });
+
+  test("shows usage when the end date is missing", async () => {
+    const { bot, replies } = createBot([]);
+
+    await bot.handleUpdate(update("/setenddate"));
+
+    expect(replies).toEqual(["Использование: /setenddate ДД.ММ.ГГГГ"]);
+  });
+
+  test("setstartdate clears a stored end date", async () => {
+    const { bot, replies, readFishingEndDate } = createBot([]);
+
+    await bot.handleUpdate(update("/setenddate 01.01.1970"));
+    await bot.handleUpdate(update("/setstartdate"));
+
+    expect(readFishingEndDate()).toBeNull();
+    expect(replies.at(-1)).toBe("Рыбалка возобновлена.");
+  });
+
+  test("does not let non-admin users change the schedule", async () => {
+    const { bot, readFishingEndDate } = createBot([]);
+
+    await bot.handleUpdate(update("/setenddate 01.01.1970", { id: 2, first_name: "Игрок" }));
+
+    expect(readFishingEndDate()).toBeNull();
   });
 });

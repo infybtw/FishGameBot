@@ -7,6 +7,7 @@ import type { CatchInsert, CooldownRow, Repo } from "../../db/index.ts";
 import { formatRubles, round2 } from "../../lib/format.ts";
 import { getCatalog, setCatalog } from "./catalog.ts";
 import { registerGroupCommands } from "./commands.ts";
+import { FISHING_ENDED } from "./messages.ts";
 
 type CommandChat = Extract<Chat, { type: "group" | "private" | "supergroup" }>;
 type FixtureUser = { id: number; first_name: string; is_bot?: boolean };
@@ -84,6 +85,7 @@ type FakeRepo = Repo & {
   announcements: { eventId: string; startedAt: number } | null;
   stoppedEvent: { eventId: string; startedAt: number } | null;
   disabledEventIds: Set<string>;
+  fishingEndDate: string | null;
 };
 
 /** Fake stored cooldown pair; CATCH_DELAY substitute defaults to one hour. */
@@ -101,6 +103,7 @@ function createFakeRepo(): FakeRepo {
   let announcements: { eventId: string; startedAt: number } | null = null;
   let stoppedEvent: { eventId: string; startedAt: number } | null = null;
   const disabledEventIds = new Set<string>();
+  let fishingEndDate: string | null = null;
   const key = (userId: number, chatId: number) => `${userId}:${chatId}`;
   const unexpected = (name: string): never => {
     throw new Error(`Unexpected repo call in test: ${name}`);
@@ -113,6 +116,12 @@ function createFakeRepo(): FakeRepo {
     catches,
     completedCollections,
     disabledEventIds,
+    get fishingEndDate() {
+      return fishingEndDate;
+    },
+    set fishingEndDate(value: string | null) {
+      fishingEndDate = value;
+    },
     get announcements() {
       return announcements;
     },
@@ -234,6 +243,14 @@ function createFakeRepo(): FakeRepo {
     },
     async setCommandOutputMode() {
       return undefined;
+    },
+    async getFishingEndDate() {
+      calls.push("getFishingEndDate");
+      return fishingEndDate;
+    },
+    async setFishingEndDate(endDate) {
+      calls.push("setFishingEndDate");
+      fishingEndDate = endDate;
     },
     async grantChanceUp(userId, chatId) {
       calls.push("grantChanceUp");
@@ -1116,6 +1133,25 @@ test("/fish outside events keeps the base success chance", async () => {
   expect(repo.catchTimes.size).toBe(1); // the attempt still started a cooldown
 
   nowSpy.mockRestore();
+});
+
+test("/fish reports the season over after the last day and resumes without it", async () => {
+  setCatalog(FULL_CATALOG);
+  const { bot, sentTexts, repo } = createTestBot();
+
+  repo.fishingEndDate = "1970-01-01";
+  await bot.handleUpdate(commandUpdate({ updateId: 402, text: "/fish", from: PLAYER }));
+
+  expect(sentTexts).toEqual([FISHING_ENDED]);
+  expect(repo.catches).toHaveLength(0);
+  expect(repo.catchTimes.size).toBe(0);
+
+  repo.fishingEndDate = "2999-12-31";
+  mockRandom([0, 0, 0, ...SIZE_RANDOMS]); // catch, rarity point, template, then the size tail
+  await bot.handleUpdate(commandUpdate({ updateId: 403, text: "/fish", from: PLAYER }));
+
+  expect(sentTexts.at(-1)).not.toBe(FISHING_ENDED);
+  expect(repo.catches).toHaveLength(1);
 });
 
 test("/fish during Сбой снастей ignores equipped rod bonuses", async () => {
